@@ -137,13 +137,13 @@ public:
         for(auto& mode:voices)for(auto& v:mode)v.prepare(sr);
         for(auto& d:reverse)d.prepare(sr,1.5);
         for(auto& pair:formants)for(auto& f:pair)f={};
-        grains={};phase.fill(0);samples.fill(0);grainClock=0;rng=0xFA11B00Du;
+        grains={};phase.fill(0);voicePhase.fill(0);tunedDelay.fill(0);samples.fill(0);grainClock=0;rng=0xFA11B00Du;
     }
     std::array<float,2> process(int which,float l,float r,const Controls& p) noexcept {
         const int mode=std::clamp(which,0,5);
         const int n=std::clamp(p.order,1,8);
         const double hz=p.sync ? (std::clamp(p.bpm,20.,400.)/60.0)/std::pow(2.,double(2+std::clamp(p.shape,0,4))) : (.02+12.*bound(p.speed));
-        const double step=std::min(hz/sr,.2);
+        const double step=std::min((mode==4?hz*(.5+.9*bound(p.extras[3])):hz)/sr,.2);
         const double cycle=phase[mode];
         phase[mode]+=step;
         if(phase[mode]>=1)phase[mode]-=1;
@@ -195,11 +195,17 @@ public:
                 int degree=(p.scale==0?major[i%7]+12*(i/7):p.scale==1?minor[i%7]+12*(i/7):p.scale==2?pent[i%5]+12*(i/5):i);
                 const double key=root*std::pow(2.,degree/12.);
                 const double detected=(p.confidence>.8f && p.pitch>45.f)?p.pitch*std::pow(2.,double(i)*p.spread/12.):key;
-                const double f=p.tuneSource==0 ? detected : key;
+                const double track=bound(p.extras[0]);
+                const double f=p.tuneSource==0 ? detected*track+key*(1.-track) : key;
                 const double harmonics=1.+std::round(3.*bound(p.extras[2]));
-                const double d=std::clamp(sr*harmonics/std::max(45.,f),sr*.00015,sr*.040);
-                outL+=voices[5][i].tap(0,l,d,p);
-                outR+=voices[5][i].tap(1,r,d,p);
+                const double goal=std::clamp(sr*harmonics/std::max(45.,f),sr*.00015,sr*.040);
+                const double glide=.001+.14*(1.-bound(p.extras[1]));
+                if(tunedDelay[i]<=0)tunedDelay[i]=goal;
+                tunedDelay[i]+=(goal-tunedDelay[i])*glide;
+                Controls resonant=p;
+                resonant.feedback=bound(p.feedback+.25f*p.extras[3],-.9f,.9f);
+                outL+=voices[5][i].tap(0,l,tunedDelay[i],resonant);
+                outR+=voices[5][i].tap(1,r,tunedDelay[i],resonant);
             }
             return {saturate(outL/n),saturate(outR/n)};
         }
@@ -207,19 +213,30 @@ public:
             const float m=mod(double(i)/n*bound(p.spread));
             auto& v=voices[size_t(mode)][size_t(i)];
             if(mode==0) {
-                const double dL=sr*.001*std::max(2.f,8.f+18.f*p.delay+5.f*p.depth*m);
+                const float location=n>1?float(i)*2/(n-1)-1.f:0.f;
+                voicePhase[i]+=step*(1.+.1*bound(p.extras[0])*location);
+                if(voicePhase[i]>=1.)voicePhase[i]-=1.;
+                const float detuned=float(std::sin(2*pi*(voicePhase[i]+double(i)/n*p.spread)));
+                const float ensemble=float(std::sin(2*pi*(cycle*.37+double(i)/n)))*p.extras[3]*.35f;
+                const double dL=sr*.001*std::max(2.f,8.f+18.f*p.delay+5.f*p.depth*(detuned+ensemble));
                 const double dR=dL+sr*.0004*p.spread;
-                const float pan=(n>1?float(i)*2/(n-1)-1:0)*p.spread;
-                outL+=v.tap(0,l,dL,p)*(1-.5f*pan);
-                outR+=v.tap(1,r,dR,p)*(1+.5f*pan);
+                const float pan=location*p.spread*(.4f+.6f*p.extras[1]);
+                const float warm=.04f+.78f*(1.f-bound(p.extras[2]));
+                const float dl=v.tap(0,l,dL,p),dr=v.tap(1,r,dR,p);
+                v.air[0]+=warm*(dl-v.air[0]);v.air[1]+=warm*(dr-v.air[1]);
+                outL+=v.air[0]*(1-.5f*pan);
+                outR+=v.air[1]*(1+.5f*pan);
             } else if(mode==1) {
-                const float ms=std::max(.12f,.15f+7.5f*p.delay+3.5f*p.depth*m+.5f*p.extras[2]);
+                const float env=std::min(1.f,.5f*(std::abs(l)+std::abs(r)));
+                const float ms=std::max(.12f,.15f+7.5f*p.delay+3.5f*p.depth*m+2.f*p.extras[2]+2.5f*env*p.extras[3]);
                 const double d=sr*.001*ms;
-                outL+=v.tap(0,l,d,p);
-                outR+=v.tap(1,r,d+sr*.0003*p.spread,p);
+                Controls coloured=p;
+                coloured.tone=bound(p.tone+(p.extras[1]-.5f)*.6f);
+                outL+=v.tap(0,l,d,coloured);
+                outR+=v.tap(1,r,d+sr*.0003*p.spread,coloured);
             } else { // ORBIT: amplitude / ITD / air-distance approximation.
                 const float angle=float(2*pi*(cycle+double(i)/n*p.spread));
-                const float x=std::cos(angle),y=std::sin(angle);
+                const float x=std::cos(angle),y=std::sin(angle)*(1.f-.6f*bound(p.extras[1]));
                 const float radius=.25f+.75f*bound(p.extras[0]);
                 const double d=sr*.001*(3.+6.*radius);
                 const double itd=sr*.001*(.2+.9*bound(p.cross))*radius*x;
@@ -254,8 +271,12 @@ private:
             const float window=.5f-.5f*std::cos(float(2*pi*t));
             const double d=g.start+2.0*g.age;
             const float pan=(g.voice%2==0?.3f:-.3f);
-            a+=window*reverse[0].read(d)*(1-pan);
-            b+=window*reverse[1].read(d)*(1+pan);
+            const float shimmer=bound(p.extras[3]);
+            const float dl=reverse[0].read(d),dr=reverse[1].read(d);
+            const float octaveL=reverse[0].read(g.start+3.0*g.age);
+            const float octaveR=reverse[1].read(g.start+3.0*g.age);
+            a+=window*(dl*(1-shimmer)+octaveL*shimmer)*(1-pan);
+            b+=window*(dr*(1-shimmer)+octaveR*shimmer)*(1+pan);
             weight+=window;++g.age;
         }
         if(weight>.1f){a/=weight;b/=weight;}
@@ -269,6 +290,7 @@ private:
     std::array<std::array<Biquad,5>,2> formants{};
     std::array<Grain,32> grains{};
     std::array<double,6> phase{};
+    std::array<double,8> voicePhase{},tunedDelay{};
     std::array<unsigned,6> samples{};
     int grainClock=0;uint32_t rng=0xFA11B00Du;
 };

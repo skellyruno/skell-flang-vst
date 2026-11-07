@@ -14,9 +14,9 @@ const char* knobNames[][4]{
     {"DETUNE","WIDTH","WARMTH","ENSEMBLE"},
     {"THRU ZERO*","FB COLOR","MANUAL","ENV FOLLOW"},
     {"VOWEL","GENDER","SHARPNESS","COMB"},
-    {"GRAIN","OVERLAP","SMEAR","SHIMMER*"},
+    {"GRAIN","OVERLAP","SMEAR","SHIMMER"},
     {"RADIUS","TILT","AIR","SPIN"},
-    {"TRACK","GLIDE*","HARMONIC","RESONANCE*"}
+    {"TRACK","GLIDE","HARMONIC","RESONANCE"}
 };
 const juce::Colour tints[]{
     juce::Colour::fromRGB(47,217,255),juce::Colour::fromRGB(255,176,46),
@@ -156,23 +156,24 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
     syncLink=std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
         p.parameters,"lfoSync",sync);
     addAndMakeVisible(preset);addAndMakeVisible(settings);
-    preset.onClick=[this]{
+    const juce::Component::SafePointer<SkellFlangAudioProcessorEditor> safeEditor(this);
+    preset.onClick=[this,safeEditor]{
         juce::PopupMenu menu;
         for(int i=0;i<19;++i)menu.addItem(i+1,presets[i]);
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&preset),
-            [safe=juce::Component::SafePointer<SkellFlangAudioProcessorEditor>(this)](int selected){
-                if(safe&&selected>0)safe->processor.applyFactoryPreset(selected-1);
+            [safeEditor](int selected){
+                if(safeEditor&&selected>0)safeEditor->processor.applyFactoryPreset(selected-1);
             });
     };
-    settings.onClick=[this]{
+    settings.onClick=[this,safeEditor]{
         juce::PopupMenu menu;
         menu.addItem(1,"UI Scale 75%");menu.addItem(2,"UI Scale 100%");
         menu.addItem(3,"UI Scale 125%");menu.addItem(4,"UI Scale 150%");
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&settings),
-            [safe=juce::Component::SafePointer<SkellFlangAudioProcessorEditor>(this)](int selection){
-                if(safe&&selection>0) {
+            [safeEditor](int selection){
+                if(safeEditor&&selection>0) {
                     const float factor=.5f+.25f*selection;
-                    safe->setSize(int(baseW*factor),int(baseH*factor));
+                    safeEditor->setSize(int(baseW*factor),int(baseH*factor));
                 }
             });
     };

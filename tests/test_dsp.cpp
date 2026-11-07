@@ -27,5 +27,27 @@ int main(){
         REQUIRE(energy>.01);
         std::cout<<"mode "<<m<<" energy "<<energy<<"\n";
     }
+    // Exercise feedback extremes, alternate sample rates and abrupt tuning changes.
+    for(const double sr:{44100.,96000.,192000.}) {
+        EngineBank bank;bank.prepare(sr);
+        Controls p;p.order=8;p.feedback=-.9f;p.extras[0]=.95f;p.extras[1]=.98f;p.extras[3]=1.f;
+        p.pitch=220;p.confidence=.99f;p.tuneSource=0;p.scale=0;
+        for(int m=0;m<6;++m) {
+            double peak=0;
+            for(int i=0;i<8192;++i) {
+                const float x=i<64?1.f:float(.2*std::sin(2*pi*220*i/sr));
+                if(i>4096)p.pitch=440;
+                const auto y=bank.process(m,x,-x,p);
+                for(const float sample:y){REQUIRE(std::isfinite(sample));peak=std::max(peak,double(std::abs(sample)));}
+            }
+            REQUIRE(peak<=1.001);
+        }
+    }
+    // Silence must clear pitch confidence; don't tune resonators to stale notes.
+    PitchTracker gated;gated.prepare(48000);
+    for(int i=0;i<48000;++i)gated.push(float(std::sin(2*pi*220*i/48000.)));
+    REQUIRE(gated.conf()>.75f);
+    for(int i=0;i<16000;++i)gated.push(0.f);
+    REQUIRE(gated.conf()<.1f);
     return 0;
 }
