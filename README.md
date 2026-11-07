@@ -41,3 +41,7 @@ ctest --test-dir build-dsp --output-on-failure
 ## Distribution
 
 JUCE and the shared SkellCore source have separate licensing/provenance obligations. Review them before any commercial release. This repository preserves the SkellCore files and changes only the quickstart plugin entry points.
+
+## Packaging verification
+
+The Windows CI now parses and normalizes the JUCE-generated `moduleinfo.json` (including trailing commas) before distribution, then uploads `dist/` directly as an Actions artifact so users download a single ZIP containing the VST3 bundle and standalone executable. The portable DSP test suite also runs with AddressSanitizer and UndefinedBehaviorSanitizer. This is packaging and static/runtime test coverage, not a substitute for pluginval or FL Studio host validation.
