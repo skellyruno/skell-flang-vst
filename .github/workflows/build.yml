@@ -1,16 +1,11 @@
-name: Build SkellCore VST Template (Windows VST3)
+name: Build Skell-Flang Windows VST3 + Standalone
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
   pull_request:
-    paths:
-      - 'SkellCore/**'
-      - 'CMakeLists.txt'
-      - 'Source/PluginEditor.cpp'
-      - 'Source/PluginProcessor.cpp'
-      - '.github/workflows/build.yml'
-
 jobs:
-  build:
+  windows-vst3:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,14 +13,29 @@ jobs:
         run: cmake -S . -B build -A x64
       - name: Build
         run: cmake --build build --config Release --parallel 2
-      - name: Package
+      - name: Verify and bundle
         shell: pwsh
         run: |
-          $plugin = Get-ChildItem -Path build -Directory -Recurse -Filter '*.vst3' | Select-Object -First 1
-          if (-not $plugin) { throw 'VST3 bundle missing' }
-          Compress-Archive -Path $plugin.FullName -DestinationPath SkellCore-Template-Windows-VST3.zip
+          $vst = Get-ChildItem build -Directory -Recurse -Filter '*.vst3' | Where-Object { $_.FullName -like '*SkellFlang*' } | Select-Object -First 1
+          if (-not $vst) { throw 'Skell-Flang VST3 not built' }
+          $exe = Get-ChildItem build -Recurse -File -Filter '*.exe' | Where-Object { $_.Name -like '*Skell-Flang*' } | Select-Object -First 1
+          if (-not $exe) { throw 'Skell-Flang standalone EXE not built' }
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Copy-Item -Path $vst.FullName -Destination dist -Recurse -Force
+          Copy-Item -Path $exe.FullName -Destination dist -Force
+          Compress-Archive -Path 'dist/*' -DestinationPath 'Skell-Flang-Windows.zip' -Force
       - uses: actions/upload-artifact@v4
         with:
-          name: SkellCore-Template-Windows-VST3
-          path: SkellCore-Template-Windows-VST3.zip
+          name: Skell-Flang-Windows-VST3-Standalone
+          path: Skell-Flang-Windows.zip
           if-no-files-found: error
+  portable-dsp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure DSP tests
+        run: cmake -S tests -B build-dsp -DCMAKE_BUILD_TYPE=Release
+      - name: Build DSP tests
+        run: cmake --build build-dsp --parallel 2
+      - name: Run DSP tests
+        run: ctest --test-dir build-dsp --output-on-failure

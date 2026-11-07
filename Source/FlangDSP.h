@@ -1,0 +1,275 @@
+#pragma once
+// Skell-Flang DSP: allocation is limited to prepare(), never the sample callback.
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdint>
+#include <vector>
+
+namespace skellflang {
+constexpr double pi = 3.14159265358979323846;
+inline float saturate(float x) noexcept {
+    return std::isfinite(x) ? std::tanh(std::clamp(x, -8.f, 8.f)) : 0.f;
+}
+inline float bound(float x, float lo=0.f, float hi=1.f) noexcept {
+    return std::clamp(std::isfinite(x) ? x : lo, lo, hi);
+}
+struct Controls {
+    int mode=0, order=3, shape=0, root=0, scale=0, tuneSource=0;
+    float depth=.45f, speed=.25f, delay=.5f, spread=.5f, cross=.2f;
+    float feedback=.1f, tone=.65f, extras[4]{.5f,.5f,.5f,.5f};
+    float pitch=220.f, confidence=0.f;
+    double bpm=120.0;
+    bool sync=false;
+};
+class Delay {
+public:
+    void prepare(double rate, double seconds) {
+        data.assign(static_cast<size_t>(std::ceil(rate*seconds)) + 12u, 0.f); head=0;
+    }
+    float read(double samples) const noexcept {
+        if(data.empty()) return 0;
+        const double d=std::clamp(std::isfinite(samples)?samples:3.0, 3.0, double(data.size()-4));
+        const int idx=int(d); const float t=float(d-idx);
+        const float a=at(idx-1), b=at(idx), c=at(idx+1), e=at(idx+2);
+        const float m0=.5f*(c-a), m1=.5f*(e-b);
+        const float t2=t*t, t3=t2*t;
+        return (2*t3-3*t2+1)*b+(t3-2*t2+t)*m0+(-2*t3+3*t2)*c+(t3-t2)*m1;
+    }
+    void write(float x) noexcept {
+        if(data.empty()) return;
+        data[head]=std::isfinite(x)?std::clamp(x,-2.f,2.f):0.f;
+        if(++head==data.size())head=0;
+    }
+    void clear() noexcept { std::fill(data.begin(),data.end(),0.f);head=0; }
+private:
+    float at(int lag) const noexcept {
+        int index=int(head)-lag; const int n=int(data.size());
+        index%=n; if(index<0)index+=n;
+        return data[size_t(index)];
+    }
+    std::vector<float> data;
+    size_t head=0;
+};
+class PitchTracker {
+public:
+    void prepare(double rate) noexcept {
+        sr=std::max(8000.0,rate);ring.fill(0);
+        head=ticks=decimate=0;hz=0;confidence=0;
+    }
+    void push(float x) noexcept {
+        if(++decimate<4)return;
+        decimate=0;ring[head++ & 2047]=std::isfinite(x)?x:0.f;
+        if(++ticks<256)return;
+        ticks=0; const double effective=sr*.25;
+        double energy=0;for(int i=0;i<256;i+=4) {
+            const double v=ring[(head-1u-static_cast<unsigned>(i))&2047];
+            energy+=v*v;
+        }
+        if(energy<1.e-6){confidence=0;return;}
+        const int lo=std::max(8,int(effective/950.0));
+        const int hi=std::min(350,int(effective/72.0));
+        double best=-1,prev=-2,prev2=-2;int lagBest=0;
+        for(int lag=lo;lag<=hi;++lag) {
+            double xy=0,xx=1.e-12,yy=1.e-12;
+            for(int i=0;i<512;i+=4) {
+                const double a=ring[(head-1u-static_cast<unsigned>(i))&2047];
+                const double b=ring[(head-1u-static_cast<unsigned>(i+lag))&2047];
+                xy+=a*b;xx+=a*a;yy+=b*b;
+            }
+            const double score=xy/std::sqrt(xx*yy);
+            if(lag>lo+1 && prev>prev2 && prev>=score && prev>.84){best=prev;lagBest=lag-1;break;}
+            if(score>best){best=score;lagBest=lag;}
+            prev2=prev;prev=score;
+        }
+        confidence=std::clamp(best,0.0,1.0);
+        if(lagBest>0 && confidence>.78) {
+            const double incoming=effective/lagBest;
+            hz=hz>0 ? .72*hz+.28*incoming : incoming;
+        }
+    }
+    float pitch() const noexcept{return float(hz);}
+    float conf() const noexcept{return float(confidence);}
+private:
+    std::array<float,2048> ring{};
+    unsigned head=0;int ticks=0,decimate=0;
+    double sr=48000,hz=0,confidence=0;
+};
+struct Biquad {
+    float b0=0,b1=0,b2=0,a1=0,a2=0,z1=0,z2=0;
+    void setBandpass(float hz,float bandwidth,double sr) noexcept {
+        const double f=std::clamp(double(hz),80.,sr*.44);
+        const double w=2*pi*f/sr;
+        const double q=std::max(.55,f/std::max(24.,double(bandwidth)));
+        const double alpha=std::sin(w)/(2*q);
+        const double norm=1/(1+alpha);
+        b0=float(alpha*norm);b1=0;b2=-b0;
+        a1=float(-2*std::cos(w)*norm);a2=float((1-alpha)*norm);
+    }
+    float process(float x) noexcept {
+        const float y=b0*x+z1;
+        z1=b1*x-a1*y+z2;z2=b2*x-a2*y;
+        if(!std::isfinite(y)){z1=z2=0;return 0;}
+        return bound(y,-4.f,4.f);
+    }
+};
+class EngineBank {
+    struct Voice {
+        Delay delay[2];float low[2]{},dcx[2]{},dcy[2]{},air[2]{};
+        void prepare(double sr) {
+            for(auto& d:delay)d.prepare(sr,.08);
+            for(float& x:low)x=0;for(float& x:dcx)x=0;
+            for(float& x:dcy)x=0;for(float& x:air)x=0;
+        }
+        float tap(int ch,float input,double delaySamples,const Controls& p) noexcept {
+            const float d=delay[ch].read(delaySamples);
+            const float hp=d-dcx[ch]+.995f*dcy[ch];
+            dcx[ch]=d;dcy[ch]=hp;
+            low[ch]+=(.035f+.86f*bound(p.tone))*(hp-low[ch]);
+            delay[ch].write(saturate(input+low[ch]*bound(p.feedback,-.9f,.9f)));
+            return d;
+        }
+    };
+    struct Grain {bool active=false;int age=0,duration=1,voice=0;double start=0;};
+public:
+    void prepare(double sampleRate) {
+        sr=std::max(8000.0,sampleRate);
+        for(auto& mode:voices)for(auto& v:mode)v.prepare(sr);
+        for(auto& d:reverse)d.prepare(sr,1.5);
+        for(auto& pair:formants)for(auto& f:pair)f={};
+        grains={};phase.fill(0);samples.fill(0);grainClock=0;rng=0xFA11B00Du;
+    }
+    std::array<float,2> process(int which,float l,float r,const Controls& p) noexcept {
+        const int mode=std::clamp(which,0,5);
+        const int n=std::clamp(p.order,1,8);
+        const double hz=p.sync ? (std::clamp(p.bpm,20.,400.)/60.0)/std::pow(2.,double(2+std::clamp(p.shape,0,4))) : (.02+12.*bound(p.speed));
+        const double step=std::min(hz/sr,.2);
+        const double cycle=phase[mode];
+        phase[mode]+=step;
+        if(phase[mode]>=1)phase[mode]-=1;
+        ++samples[mode];
+        auto mod=[&](double offset) {
+            const double q=cycle+offset-std::floor(cycle+offset);
+            switch(p.shape) {
+                case 1:return float(1.-4.*std::abs(q-.5));
+                case 2:return float(2.*q-1.);
+                case 3:return float(1.-2.*q);
+                case 4:return float(std::tanh(10*std::sin(2*pi*q)));
+                default:return float(std::sin(2*pi*q));
+            }
+        };
+        float outL=0,outR=0;
+        if(mode==3)return processReverse(l,r,p,n);
+        if(mode==2) {
+            // Five original, approximate vowel resonances. No third-party phonetic table.
+            constexpr float vowel[5][5]{
+                {750,1200,2500,3500,4400},{520,1800,2600,3500,4400},
+                {290,2300,3000,3800,4550},{510,950,2400,3300,4200},
+                {330,780,2200,3100,4100}};
+            constexpr float width[5]{90,130,170,260,330};
+            const float v=bound(p.extras[0]+p.depth*.4f*mod(0));
+            const float where=v*4.f;const int low=int(where),high=std::min(4,low+1);
+            const float mix=where-low;
+            if((samples[mode]&31u)==0u)for(int ch=0;ch<2;++ch)
+                for(int b=0;b<5;++b){
+                    const float f=std::exp(std::log(vowel[low][b])*(1-mix)+std::log(vowel[high][b])*mix);
+                    formants[ch][b].setBandpass(f*(.7f+.7f*p.extras[1]),width[b]*(1.6f-p.extras[2]),sr);
+                }
+            const double delay=sr*.001*(1.+13.*bound(p.delay));
+            const float dl=voices[2][0].tap(0,l,delay,p);
+            const float dr=voices[2][0].tap(1,r,delay,p);
+            float vl=0,vr=0;
+            for(int b=0;b<std::min(5,n);++b) {
+                vl+=formants[0][b].process(dl);
+                vr+=formants[1][b].process(dr);
+            }
+            const float comb=bound(p.extras[3]);
+            return {saturate(comb*dl+(1-comb)*vl*.8f),saturate(comb*dr+(1-comb)*vr*.8f)};
+        }
+        if(mode==5) {
+            constexpr int major[]{0,2,4,5,7,9,11};
+            constexpr int minor[]{0,2,3,5,7,8,10};
+            constexpr int pent[]{0,2,4,7,9};
+            const double root=65.406391325*std::pow(2.,std::clamp(p.root,0,11)/12.);
+            for(int i=0;i<n;++i) {
+                int degree=(p.scale==0?major[i%7]+12*(i/7):p.scale==1?minor[i%7]+12*(i/7):p.scale==2?pent[i%5]+12*(i/5):i);
+                const double key=root*std::pow(2.,degree/12.);
+                const double detected=(p.confidence>.8f && p.pitch>45.f)?p.pitch*std::pow(2.,double(i)*p.spread/12.):key;
+                const double f=p.tuneSource==0 ? detected : key;
+                const double harmonics=1.+std::round(3.*bound(p.extras[2]));
+                const double d=std::clamp(sr*harmonics/std::max(45.,f),sr*.00015,sr*.040);
+                outL+=voices[5][i].tap(0,l,d,p);
+                outR+=voices[5][i].tap(1,r,d,p);
+            }
+            return {saturate(outL/n),saturate(outR/n)};
+        }
+        for(int i=0;i<n;++i) {
+            const float m=mod(double(i)/n*bound(p.spread));
+            auto& v=voices[size_t(mode)][size_t(i)];
+            if(mode==0) {
+                const double dL=sr*.001*std::max(2.f,8.f+18.f*p.delay+5.f*p.depth*m);
+                const double dR=dL+sr*.0004*p.spread;
+                const float pan=(n>1?float(i)*2/(n-1)-1:0)*p.spread;
+                outL+=v.tap(0,l,dL,p)*(1-.5f*pan);
+                outR+=v.tap(1,r,dR,p)*(1+.5f*pan);
+            } else if(mode==1) {
+                const float ms=std::max(.12f,.15f+7.5f*p.delay+3.5f*p.depth*m+.5f*p.extras[2]);
+                const double d=sr*.001*ms;
+                outL+=v.tap(0,l,d,p);
+                outR+=v.tap(1,r,d+sr*.0003*p.spread,p);
+            } else { // ORBIT: amplitude / ITD / air-distance approximation.
+                const float angle=float(2*pi*(cycle+double(i)/n*p.spread));
+                const float x=std::cos(angle),y=std::sin(angle);
+                const float radius=.25f+.75f*bound(p.extras[0]);
+                const double d=sr*.001*(3.+6.*radius);
+                const double itd=sr*.001*(.2+.9*bound(p.cross))*radius*x;
+                const float a=v.tap(0,(l+r)*.5f,d+itd,p)*(1-.45f*x);
+                const float b=v.tap(1,(l+r)*.5f,d-itd,p)*(1+.45f*x);
+                const float coeff=.15f+.7f*(1-bound(p.extras[2])*.6f);
+                v.air[0]+=coeff*(a-v.air[0]);v.air[1]+=coeff*(b-v.air[1]);
+                outL+=v.air[0]*(.9f+.1f*y);outR+=v.air[1]*(.9f+.1f*y);
+            }
+        }
+        return {saturate(outL/n),saturate(outR/n)};
+    }
+private:
+    unsigned random() noexcept{rng^=rng<<13;rng^=rng>>17;rng^=rng<<5;return rng;}
+    std::array<float,2> processReverse(float l,float r,const Controls&p,int n) noexcept {
+        const int duration=std::clamp(int(sr*.001*(30.+370.*p.extras[0])),32,int(sr*.40));
+        const float overlap=1.f+7.f*bound(p.extras[1]);
+        const int period=std::max(16,int(duration/(overlap*n*(.6f+2.f*p.speed))));
+        if(++grainClock>=period) {
+            grainClock=0;
+            for(auto& g:grains)if(!g.active){
+                g.active=true;g.age=0;g.duration=duration;g.voice=int(random()%unsigned(n));
+                const double jitter=double(int(random()%2001)-1000)/1000.;
+                g.start=std::max(4.,sr*.001*(20.+160.*p.delay)+jitter*.1*sr*p.extras[2]);
+                break;
+            }
+        }
+        float a=0,b=0,weight=0;
+        for(auto& g:grains)if(g.active) {
+            if(g.age>=g.duration){g.active=false;continue;}
+            const float t=float(g.age)/g.duration;
+            const float window=.5f-.5f*std::cos(float(2*pi*t));
+            const double d=g.start+2.0*g.age;
+            const float pan=(g.voice%2==0?.3f:-.3f);
+            a+=window*reverse[0].read(d)*(1-pan);
+            b+=window*reverse[1].read(d)*(1+pan);
+            weight+=window;++g.age;
+        }
+        if(weight>.1f){a/=weight;b/=weight;}
+        reverse[0].write(saturate(l+a*p.feedback*.15f));
+        reverse[1].write(saturate(r+b*p.feedback*.15f));
+        return {saturate(a),saturate(b)};
+    }
+    double sr=48000;
+    std::array<std::array<Voice,8>,6> voices{};
+    std::array<Delay,2> reverse{};
+    std::array<std::array<Biquad,5>,2> formants{};
+    std::array<Grain,32> grains{};
+    std::array<double,6> phase{};
+    std::array<unsigned,6> samples{};
+    int grainClock=0;uint32_t rng=0xFA11B00Du;
+};
+} // namespace skellflang
