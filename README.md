@@ -25,6 +25,16 @@ CMake fetches pinned JUCE 8.0.12 if JUCE_PATH is not supplied and links the **lo
 
 GitHub Actions **Build Skell-Flang Windows VST3 Only** builds and packages only the VST3 bundle. There is no standalone executable target or standalone EXE in the artifact. Portable and sanitized DSP test jobs are required alongside the Windows compile. The built plugin is usually under `build/SkellFlang_artefacts/Release/VST3/`.
 
+## Real-time operation (v0.4)
+
+- VST3-only; audio runs in the host audio callback. No separate executable.
+- Zero reported host PDC and no look-ahead. The musical wet effects retain their inherent delays, and pitch tracking still requires a brief analysis history.
+- Main DSP controls and four mode macros use sample-rate-independent 4 ms smoothing updated each sample. Targets arrive at audio-block boundaries; this does not imply sample-accurate VST3 automation events.
+- Mix, crossfeed and output use 6 ms ramps; power uses 5 ms and morph uses 25 ms. Fully bypassed input no longer goes through the active output clamp.
+- Tuned pitch-following now uses antialiased decimation and updates its analysis roughly every 10-11 ms at common sample rates, without buffering output audio.
+- Waveform scope displays 64 ordered samples representing approximately 43 ms at any sample rate. Peak decay and CPU indication are independent of host audio buffer size.
+- Delay buffers allocate in prepareToPlay. Our per-sample DSP uses fixed state with no explicit locks, file I/O or heap allocations.
+- Real FL Studio listening, pluginval, and CPU profiling at 32/64/128 samples per block are still required.
 ## DSP behavior and limitations
 
 The delay-line Hermite interpolation and feedback filtering are bounded and allocated in `prepareToPlay`. Modulated voice delay times now use a 3.5 ms slew filter and feedback automation uses an independent 8 ms filter, calculated per sample without heap allocation. Host PDC is fixed at **0 samples**, avoiding an artificial misalignment of the dry and wet flanging signals. The reverse-grain effect has natural creative time offset but no extra host-declared delay.
