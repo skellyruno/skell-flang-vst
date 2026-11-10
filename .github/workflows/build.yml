@@ -43,7 +43,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "UI smoke test failed (exit $LASTEXITCODE)" }
       - name: Save real editor renders for layout inspection
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: Skell-Flang-UI-Renders
           path: build/ui-smoke/*.png
@@ -55,7 +55,7 @@ jobs:
           strictness-level: 5
           args: --timeout-ms 90000
           pluginval-version: v2.0.0-beta3
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: Skell-Flang-Windows-VST3-Only
           path: dist/
