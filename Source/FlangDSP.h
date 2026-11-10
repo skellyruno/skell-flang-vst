@@ -121,17 +121,29 @@ struct Biquad {
 class EngineBank {
     struct Voice {
         Delay delay[2];float low[2]{},dcx[2]{},dcy[2]{},air[2]{};
+        double lag[2]{},lagAlpha=.01;float fb[2]{},fbAlpha=.01f;
+        bool lagReady[2]{};
         void prepare(double sr) {
             for(auto& d:delay)d.prepare(sr,.08);
             for(float& x:low)x=0;for(float& x:dcx)x=0;
             for(float& x:dcy)x=0;for(float& x:air)x=0;
+            for(auto& x:lag)x=0;for(auto& x:fb)x=0;lagReady[0]=lagReady[1]=false;
+            lagAlpha=1.-std::exp(-1./(std::max(8000.,sr)*.0035));
+            fbAlpha=float(1.-std::exp(-1./(std::max(8000.,sr)*.008)));
         }
         float tap(int ch,float input,double delaySamples,const Controls& p) noexcept {
-            const float d=delay[ch].read(delaySamples);
+            // 3.5 ms one-pole slew prevents fractional-delay zippering on
+            // sudden automation while preserving normal chorus/flanger motion.
+            const double goal=std::isfinite(delaySamples)?std::max(3.,delaySamples):3.;
+            if(!lagReady[ch]){lag[ch]=goal;lagReady[ch]=true;}
+            else lag[ch]+=lagAlpha*(goal-lag[ch]);
+            const float d=delay[ch].read(lag[ch]);
             const float hp=d-dcx[ch]+.995f*dcy[ch];
             dcx[ch]=d;dcy[ch]=hp;
             low[ch]+=(.035f+.86f*bound(p.tone))*(hp-low[ch]);
-            delay[ch].write(saturate(input+low[ch]*bound(p.feedback,-.9f,.9f)));
+            // Feedback automation is independent of tap-time smoothing.
+            fb[ch]+=(bound(p.feedback,-.9f,.9f)-fb[ch])*fbAlpha;
+            delay[ch].write(saturate(input+low[ch]*fb[ch]));
             return d;
         }
     };
@@ -233,7 +245,10 @@ public:
                 outR+=v.air[1]*(1+.5f*pan);
             } else if(mode==1) {
                 const float env=std::min(1.f,.5f*(std::abs(l)+std::abs(r)));
-                const float ms=std::max(.12f,.15f+7.5f*p.delay+3.5f*p.depth*m+2.f*p.extras[2]+2.5f*env*p.extras[3]);
+                // SWEEP RANGE (extra0) now controls modulation travel. Neutral at .5.
+                const float travel=.3f+1.4f*bound(p.extras[0]);
+                const float ms=std::max(.12f,.15f+7.5f*p.delay+
+                    3.5f*p.depth*m*travel+2.f*p.extras[2]+2.5f*env*p.extras[3]);
                 const double d=sr*.001*ms;
                 Controls coloured=p;
                 coloured.tone=bound(p.tone+(p.extras[1]-.5f)*.6f);

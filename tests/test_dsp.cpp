@@ -53,6 +53,40 @@ int main(){
     const auto swapped=stereoCrossfeed(.75f,-.25f,1.f);
     REQUIRE(std::abs(swapped[0]+.25f)<1.e-5f);
     REQUIRE(std::abs(swapped[1]-.75f)<1.e-5f);
+
+    // Exercise automation jumps: the interpolated delay and feedback control
+    // must remain finite under extreme real-time changes and both signs of FB.
+    for(const double rate : {44100.,96000.}) {
+        EngineBank bank; bank.prepare(rate);
+        Controls c; c.order=8; c.speed=.95f; c.depth=.9f;
+        double difference=0;
+        for(int i=0;i<32768;++i) {
+            c.delay=(i/37)%2 ? 0.f : 1.f;
+            c.feedback=(i/113)%2 ? -.9f : .9f;
+            c.extras[0]=(i/71)%2 ? 0.f : 1.f;
+            const float input=float(.15*std::sin(2*pi*330*i/rate));
+            const auto result=bank.process(1,input,-input,c);
+            REQUIRE(std::isfinite(result[0])&&std::isfinite(result[1]));
+            REQUIRE(std::abs(result[0])<=1.001f&&std::abs(result[1])<=1.001f);
+            difference+=std::abs(result[0]-result[1]);
+        }
+        REQUIRE(difference>.01);
+    }
+    // SWEEP RANGE must audibly (numerically) change the resulting flanger.
+    {
+        EngineBank narrow,wide;narrow.prepare(48000);wide.prepare(48000);
+        Controls a,b;a.order=b.order=3;a.depth=b.depth=.9f;
+        a.speed=b.speed=.25f;a.delay=b.delay=.22f;
+        a.extras[0]=0.f;b.extras[0]=1.f;
+        double delta=0;
+        for(int i=0;i<16384;++i){
+            const float x=float(.25*std::sin(2*pi*210*i/48000.));
+            const auto y=narrow.process(1,x,x,a),z=wide.process(1,x,x,b);
+            delta+=std::abs(y[0]-z[0]);
+        }
+        REQUIRE(delta>0.01);
+    }
+
     // Silence must clear pitch confidence; don't tune resonators to stale notes.
     PitchTracker gated;gated.prepare(48000);
     for(int i=0;i<48000;++i)gated.push(float(std::sin(2*pi*220*i/48000.)));

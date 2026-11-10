@@ -12,6 +12,8 @@ public:
     void drawRotarySlider(juce::Graphics&,int,int,int,int,float,float,float,juce::Slider&) override;
     void drawButtonBackground(juce::Graphics&,juce::Button&,const juce::Colour&,
                               bool,bool) override;
+    juce::Font getTextButtonFont(juce::TextButton&,int buttonHeight) override;
+    juce::Font getComboBoxFont(juce::ComboBox&) override;
 };
 class SkellFlangAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                               private juce::Timer {

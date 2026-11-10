@@ -12,7 +12,7 @@ const char* modes[]={"CHORUS","FLANGER","VOWEL","REVERSE","ORBIT","TUNED"};
 const char* lanes[]={"DEPTH","SPEED","DELAY","SPREAD","CROSS","DRY","WET"};
 const char* knobNames[][4]{
     {"DETUNE","WIDTH","WARMTH","ENSEMBLE"},
-    {"THRU ZERO*","FB COLOR","MANUAL","ENV FOLLOW"},
+    {"SWEEP RANGE","FB COLOR","MANUAL","ENV FOLLOW"},
     {"VOWEL","GENDER","SHARPNESS","COMB"},
     {"GRAIN","OVERLAP","SMEAR","SHIMMER"},
     {"RADIUS","TILT","AIR","SPIN"},
@@ -109,6 +109,17 @@ void FlangLookAndFeel::drawButtonBackground(juce::Graphics&g,juce::Button&button
 SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioProcessor&p)
 : AudioProcessorEditor(&p),processor(p) {
     setLookAndFeel(&skin);
+    // Accessible text contrast and consistent dark dropdowns, even in FL Studio.
+    for(auto* dropdown : {&target,&shape,&root,&scale,&tuneSource}) {
+        dropdown->setColour(juce::ComboBox::backgroundColourId,juce::Colour::fromRGB(13,29,31));
+        dropdown->setColour(juce::ComboBox::textColourId,bone);
+        dropdown->setColour(juce::ComboBox::outlineColourId,juce::Colour::fromRGB(52,80,74));
+        dropdown->setColour(juce::ComboBox::arrowColourId,juce::Colour::fromRGB(128,208,182));
+    }
+    setColour(juce::PopupMenu::backgroundColourId,juce::Colour::fromRGB(15,27,29));
+    setColour(juce::PopupMenu::textColourId,bone);
+    setColour(juce::PopupMenu::highlightedBackgroundColourId,juce::Colour::fromRGB(45,81,76));
+    setColour(juce::PopupMenu::highlightedTextColourId,bone);
     page=juce::jlimit(0,2,int(p.parameters.state.getProperty("uiPage",0)));
     for(int i=0;i<7;++i){
         styleSlider(faders[i],true);addAndMakeVisible(faders[i]);
@@ -194,6 +205,7 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
                 if(safeEditor&&selection>0) {
                     const int widths[]{540,720,900,1080};
                     const int w=widths[selection-1];
+                    safeEditor->processor.parameters.state.setProperty("uiWidth",w,nullptr);
                     safeEditor->setSize(w,juce::roundToInt(w*double(baseH)/baseW));
                 }
             });
@@ -201,7 +213,8 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
     setResizable(true,true);
     if(auto* c=getConstrainer())c->setFixedAspectRatio(double(baseW)/baseH);
     setResizeLimits(540,338,1080,675);
-    setSize(540,338);
+    const int savedWidth=juce::jlimit(540,1080,int(p.parameters.state.getProperty("uiWidth",540)));
+    setSize(savedWidth,juce::roundToInt(savedWidth*double(baseH)/baseW));
     updateMode();
     startTimerHz(24);
 }
@@ -211,6 +224,11 @@ SkellFlangAudioProcessorEditor::~SkellFlangAudioProcessorEditor(){
 
 void SkellFlangAudioProcessorEditor::resized() {
     const float s=getWidth()/float(baseW);
+    // JUCE child components are independent of the graphics scale. Resize text
+    // explicitly or compact mode inherits oversized fonts.
+    const auto fontSize=juce::jlimit(9.2f,12.5f,12.5f*s);
+    for(auto& text:faderLabels)text.setFont(juce::Font(fontSize));
+    for(auto& text:knobLabels)text.setFont(juce::Font(fontSize));
     auto place=[s](juce::Component&c,int x,int y,int w,int h) {
         c.setBounds(juce::roundToInt(x*s),juce::roundToInt(y*s),
                     juce::roundToInt(w*s),juce::roundToInt(h*s));
@@ -282,6 +300,11 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.fillRect(0,0,baseW,52);
     g.setColour(juce::Colour::fromRGB(30,55,52));
     g.drawLine(14.f,51.f,706.f,51.f,.85f);
+    // A fine accent under the active mode, rather than six glowing boxes.
+    if(shownMode>=0 && shownMode<6) {
+        g.setColour(tints[shownMode].withAlpha(.82f));
+        g.fillRoundedRectangle(28.f+115.f*shownMode,101.f,84.f,2.f,1.f);
+    }
 
     panelRect(g,14,111,516,221);
     panelRect(g,538,111,169,221);
@@ -362,4 +385,11 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
                "%    /    "+juce::String(modes[std::clamp(shownMode,0,5)]),
                20,430,685,18,juce::Justification::centredLeft);
     g.restoreState();
+}
+
+juce::Font FlangLookAndFeel::getTextButtonFont(juce::TextButton&,int height) {
+    return juce::Font(juce::jlimit(10.f,15.f,float(height)*.45f));
+}
+juce::Font FlangLookAndFeel::getComboBoxFont(juce::ComboBox& box) {
+    return juce::Font(juce::jlimit(10.f,14.f,float(box.getHeight())*.46f));
 }

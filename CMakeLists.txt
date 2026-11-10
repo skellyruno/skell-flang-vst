@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(SkellFlang VERSION 0.2.0 LANGUAGES C CXX)
+project(SkellFlang VERSION 0.3.0 LANGUAGES C CXX)
 include(FetchContent)
 if(DEFINED JUCE_PATH AND EXISTS "${JUCE_PATH}/CMakeLists.txt")
   add_subdirectory("${JUCE_PATH}" JUCE)
@@ -13,7 +13,7 @@ juce_add_plugin(SkellFlang
   BUNDLE_ID "audio.skell.skellflang"
   PLUGIN_MANUFACTURER_CODE SkAu
   PLUGIN_CODE Fl26
-  FORMATS VST3 Standalone
+  FORMATS VST3
   PRODUCT_NAME "Skell-Flang"
   IS_SYNTH FALSE
   NEEDS_MIDI_INPUT FALSE

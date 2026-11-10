@@ -1,4 +1,4 @@
-name: Build Skell-Flang Windows VST3 + Standalone
+name: Build Skell-Flang Windows VST3 Only
 on:
   workflow_dispatch:
   push:
@@ -18,8 +18,8 @@ jobs:
         run: |
           $vst = Get-ChildItem build -Directory -Recurse -Filter '*.vst3' | Where-Object { $_.FullName -like '*SkellFlang*' } | Select-Object -First 1
           if (-not $vst) { throw 'Skell-Flang VST3 not built' }
-          $exe = Get-ChildItem build -Recurse -File -Filter '*.exe' | Where-Object { $_.Name -like '*Skell-Flang*' } | Select-Object -First 1
-          if (-not $exe) { throw 'Skell-Flang standalone EXE not built' }
+          $binary = Join-Path $vst.FullName 'Contents/x86_64-win/Skell-Flang.vst3'
+          if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw 'VST3 x64 module binary missing' }
           $manifest = Join-Path $vst.FullName 'Contents/Resources/moduleinfo.json'
           if (-not (Test-Path -LiteralPath $manifest)) { throw 'VST3 manifest is missing' }
           $contents = Get-Content -LiteralPath $manifest -Raw
@@ -30,10 +30,9 @@ jobs:
           Set-Content -LiteralPath $manifest -Value $normalized -Encoding utf8 -NoNewline
           New-Item -ItemType Directory -Path dist -Force | Out-Null
           Copy-Item -Path $vst.FullName -Destination dist -Recurse -Force
-          Copy-Item -Path $exe.FullName -Destination dist -Force
       - uses: actions/upload-artifact@v4
         with:
-          name: Skell-Flang-Windows-VST3-Standalone
+          name: Skell-Flang-Windows-VST3-Only
           path: dist/
           if-no-files-found: error
   portable-dsp:
