@@ -53,9 +53,10 @@ bool SkellFlangAudioProcessor::isBusesLayoutSupported(const BusesLayout& l)const
 void SkellFlangAudioProcessor::prepareToPlay(double sr,int) {
     rate=std::max(8000.0,sr);
     engines.prepare(rate);pitchTracker.prepare(rate);
-    dryMix.reset(rate,.02);wetMix.reset(rate,.02);outputMix.reset(rate,.02);
-    powerMix.reset(rate,.01);morphMix.reset(rate,.04);
-    crossMix.reset(rate,.025);
+    for(auto& smoother:controlSmoothers)smoother.prepare(rate);
+    dryMix.reset(rate,.006);wetMix.reset(rate,.006);outputMix.reset(rate,.006);
+    powerMix.reset(rate,.005);morphMix.reset(rate,.025);
+    crossMix.reset(rate,.006);
     dryMix.setCurrentAndTargetValue(.75f);wetMix.setCurrentAndTargetValue(.55f);
     outputMix.setCurrentAndTargetValue(1.f);powerMix.setCurrentAndTargetValue(1.f);
     morphMix.setCurrentAndTargetValue(0.f);
@@ -63,6 +64,8 @@ void SkellFlangAudioProcessor::prepareToPlay(double sr,int) {
     active=std::clamp(int(raw("mode")),0,5);previous=active;remaining=0;
     transition=std::max(1,int(rate*.04));
     holdL=holdR=0;sampleCount=0;
+    meters.scopeNext.store(0,std::memory_order_relaxed);
+    for(auto& v:meters.scope)v.store(0.f,std::memory_order_relaxed);
     setLatencySamples(0); // No artificial PDC mismatch between dry and wet.
 }
 float SkellFlangAudioProcessor::raw(const char* id)const noexcept {
@@ -98,7 +101,8 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
     dryMix.setTargetValue(curve(raw("dry")));wetMix.setTargetValue(curve(raw("wet")));
     outputMix.setTargetValue(juce::Decibels::decibelsToGain(raw("output")));
     powerMix.setTargetValue(raw("power")>.5f?1.f:0.f);
-    morphMix.setTargetValue(raw("morph"));
+    const float requestedMorph=std::clamp(raw("morph"),0.f,1.f);
+    morphMix.setTargetValue(requestedMorph);
     crossMix.setTargetValue(std::clamp(raw("cross"),0.f,1.f));
     float peakL=0,peakR=0;
     auto* left=buffer.getWritePointer(0);
@@ -106,16 +110,17 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
     for(int i=0;i<length;++i) {
         const float a=std::isfinite(left[i])?left[i]:0.f;
         const float b=right?(std::isfinite(right[i])?right[i]:0.f):a;
-        if(active==5||(target==5 && raw("morph")>.0001f)||(previous==5&&remaining>0))
+        if(active==5||(target==5 && requestedMorph>.0001f)||(previous==5&&remaining>0))
             pitchTracker.push(.5f*(a+b));
-        auto main=primary;
+        auto main=controlSmoothers[size_t(active)].next(primary);
         main.pitch=pitchTracker.pitch();main.confidence=pitchTracker.conf();
         auto wet=engines.process(active,a,b,main);
         const float amount=morphMix.getNextValue();
         std::array<float,2> alternate{};
         bool haveAlternate=false;
         if(target!=active && amount>.0001f) {
-            auto alt=secondary;alt.pitch=main.pitch;alt.confidence=main.confidence;
+            auto alt=controlSmoothers[size_t(target)].next(secondary);
+            alt.pitch=main.pitch;alt.confidence=main.confidence;
             alternate=engines.process(target,a,b,alt);
             haveAlternate=true;
             const float c=std::cos(amount*float(skellflang::pi*.5));
@@ -124,7 +129,8 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
         }
         if(remaining>0) {
             if(previous!=active){
-                auto old=former;old.pitch=main.pitch;old.confidence=main.confidence;
+                auto old=controlSmoothers[size_t(previous)].next(former);
+                old.pitch=main.pitch;old.confidence=main.confidence;
                 const auto previousOut=(haveAlternate && target==previous)?alternate:
                     engines.process(previous,a,b,old);
                 const float t=1.f-float(remaining)/transition;
@@ -142,13 +148,17 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
         const float output=outputMix.getNextValue(),power=powerMix.getNextValue();
         const float l=a*(1-power)+power*output*(dry*a+wetGain*wet[0]);
         const float r=b*(1-power)+power*output*(dry*b+wetGain*wet[1]);
-        const float safeL=std::isfinite(l)?std::clamp(l,-1.f,1.f):0.f;
-        const float safeR=std::isfinite(r)?std::clamp(r,-1.f,1.f):0.f;
+        // A fully bypassed plugin must preserve above-0dBFS input unchanged.
+        const float safeL=power<=0.f?a:(std::isfinite(l)?std::clamp(l,-1.f,1.f):0.f);
+        const float safeR=power<=0.f?b:(std::isfinite(r)?std::clamp(r,-1.f,1.f):0.f);
         left[i]=right?safeL:.5f*(safeL+safeR);
         if(right)right[i]=safeR;
         peakL=std::max(peakL,std::abs(safeL));peakR=std::max(peakR,std::abs(safeR));
-        if((++sampleCount&31u)==0u)
-            meters.scope[(sampleCount/32u)%64u].store(.5f*(safeL+safeR),std::memory_order_relaxed);
+        if((++sampleCount&31u)==0u) {
+            const auto index=unsigned((sampleCount/32u)%64u);
+            meters.scope[index].store(.5f*(safeL+safeR),std::memory_order_relaxed);
+            meters.scopeNext.store((index+1u)%64u,std::memory_order_release);
+        }
     }
     holdL=std::max(peakL,holdL*.93f);holdR=std::max(peakR,holdR*.93f);
     meters.peaks[0].store(holdL,std::memory_order_relaxed);
