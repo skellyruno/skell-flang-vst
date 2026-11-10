@@ -59,6 +59,15 @@ int main() {
         const auto directory=juce::File::getCurrentWorkingDirectory().getChildFile("build/ui-smoke");
         verify(directory.createDirectory().wasOk(),"Cannot create UI test screenshot folder");
         juce::PNGImageFormat png;
+        // Verify the unattended runner can actually draw into an ARGB image.
+        // Otherwise a black/transparent snapshot is a test-environment error.
+        juce::Image probe(juce::Image::ARGB,8,8,true);
+        {
+            juce::Graphics g(probe);
+            g.fillAll(juce::Colours::red);
+        }
+        verify(probe.getPixelAt(4,4).getRed()>200,
+               "The Windows CI runner cannot render to JUCE software images");
         for(const auto width:widths) {
             editor->setSize(width,juce::roundToInt(double(width)*450./720.));
             verify(editor->getWidth()==width,"Editor ignored requested width");
