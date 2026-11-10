@@ -34,6 +34,13 @@ jobs:
           Set-Content -LiteralPath $manifest -Value $normalized -Encoding utf8 -NoNewline
           New-Item -ItemType Directory -Path dist -Force | Out-Null
           Copy-Item -Path $vst.FullName -Destination dist -Recurse -Force
+      - name: Host and editor validation (pluginval)
+        uses: Tracktion/pluginval/validate@v2.0.0-beta3
+        with:
+          plugins: build/SkellFlang_artefacts/Release/VST3/Skell-Flang.vst3
+          strictness-level: 5
+          args: --timeout-ms 90000
+          pluginval-version: v2.0.0-beta3
       - uses: actions/upload-artifact@v4
         with:
           name: Skell-Flang-Windows-VST3-Only
