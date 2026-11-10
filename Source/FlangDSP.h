@@ -14,6 +14,11 @@ inline float saturate(float x) noexcept {
 inline float bound(float x, float lo=0.f, float hi=1.f) noexcept {
     return std::clamp(std::isfinite(x) ? x : lo, lo, hi);
 }
+// Crossfeed preserves the mono sum and reaches a true L/R exchange at 100%.
+inline std::array<float,2> stereoCrossfeed(float left,float right,float amount) noexcept {
+    const float mix=bound(amount);
+    return {left*(1.f-mix)+right*mix,right*(1.f-mix)+left*mix};
+}
 struct Controls {
     int mode=0, order=3, shape=0, root=0, scale=0, tuneSource=0;
     float depth=.45f, speed=.25f, delay=.5f, spread=.5f, cross=.2f;
