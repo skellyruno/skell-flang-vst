@@ -211,5 +211,6 @@ int main(){
     REQUIRE(gated.conf()>.75f);
     for(int i=0;i<16000;++i)gated.push(0.f);
     REQUIRE(gated.conf()<.1f);
+    REQUIRE(gated.pitch()==0.f); // Silence cannot leave a stale locked note.
     return 0;
 }

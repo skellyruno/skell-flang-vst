@@ -64,15 +64,17 @@ int main() {
         options.project="Skell-Flang actual JUCE AudioProcessorEditor";
         options.minimumColours=12;
         for(const int width : std::array<int,4>{540,720,900,1080}) {
-            for(int view=0;view<4;++view) {
+            for(int view=0;view<5;++view) {
                 skellcore::ui::headless::Scene scene;
                 const juce::String suffix[]={"flanger-core","flanger-color",
-                                              "flanger-motion","tuned-motion"};
+                                              "flanger-motion","flanger-morph-full",
+                                              "tuned-motion"};
                 scene.id="Skell-Flang-"+juce::String(width)+"-"+suffix[view];
                 scene.width=width;
                 scene.height=juce::roundToInt(double(width)*450./720.);
-                scene.mode=view==3?5:1;
+                scene.mode=view==4?5:1;
                 scene.theme=view==0?0:view==1?1:2; // UI page, not a cosmetic theme
+                scene.browser=view==3; // Test MORPH at maximum in this view
                 options.scenes.push_back(scene);
             }
         }
@@ -86,6 +88,9 @@ int main() {
             verify(pageButton!=nullptr && bool(pageButton->onClick),
                    "Page tab cannot be selected");
             pageButton->onClick();
+            auto* morphSlider=dynamic_cast<juce::Slider*>(editor->findChildWithID("morph"));
+            verify(morphSlider!=nullptr,"MORPH control missing");
+            morphSlider->setValue(scene.browser?1.0:0.0,juce::sendNotificationSync);
         };
         options.inspect=[&]() {
             juce::StringArray problems;
@@ -106,6 +111,7 @@ int main() {
         options.mustDiffer={
             {"Skell-Flang-540-flanger-core","Skell-Flang-540-flanger-color"},
             {"Skell-Flang-540-flanger-color","Skell-Flang-540-flanger-motion"},
+            {"Skell-Flang-540-flanger-motion","Skell-Flang-540-flanger-morph-full"},
             {"Skell-Flang-540-flanger-motion","Skell-Flang-540-tuned-motion"}
         };
         // Windows CI software rendering sanity check before using snapshots.
@@ -118,9 +124,9 @@ int main() {
         for(const auto& error:report.errors)
             std::cerr<<error.toStdString()<<"\\n";
         verify(report.passed(),"Shared SkellCore renderer reported a visual regression");
-        verify(report.captured==16,"Expected 16 real-editor JUCE screenshots");
+        verify(report.captured==20,"Expected 20 real-editor JUCE screenshots");
         std::cout<<"SkellCore rendered "<<report.captured
-                 <<" real-editor scenes across four sizes and four views\\n";
+                 <<" real-editor scenes across four sizes and five views\\n";
         juce::AudioBuffer<float> buffer(2,64);
         juce::MidiBuffer midi;
         for(int pass=0;pass<100;++pass) {
@@ -133,6 +139,13 @@ int main() {
                 for(int i=0;i<64;++i)
                     verify(std::isfinite(buffer.getSample(ch,i)),"Audio output not finite");
         }
+        // The final screenshot selects TUNED. An anti-phase stereo sine must
+        // still lock: mono summing these channels would erase the fundamental.
+        verify(processor.meters.confidence.load(std::memory_order_relaxed)>.78f,
+               "Tuned tracker lost anti-phase stereo pitch confidence");
+        const float detectedPitch=processor.meters.pitch.load(std::memory_order_relaxed);
+        verify(detectedPitch>420.f && detectedPitch<460.f,
+               "Tuned tracker missed 440 Hz anti-phase stereo tone");
         processor.releaseResources();
         return 0;
     } catch(const std::exception& exception) {

@@ -56,5 +56,6 @@ private:
     int scopeStride=32,scopeCounter=0;
     unsigned scopeIndex=0;
     double rate=48000.0;
+    bool pitchFromSide=false;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SkellFlangAudioProcessor)
 };

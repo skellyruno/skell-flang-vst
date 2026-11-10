@@ -67,6 +67,7 @@ void SkellFlangAudioProcessor::prepareToPlay(double sr,int) {
     active=std::clamp(int(raw("mode")),0,5);previous=active;remaining=0;
     transition=std::max(1,int(rate*.04));
     holdL=holdR=cpuDisplay=0.f;
+    pitchFromSide=false;
     scopeStride=std::max(1,int(std::lround(rate/1500.0)));
     scopeCounter=0;scopeIndex=0;
     meters.scopeNext.store(0,std::memory_order_relaxed);
@@ -112,11 +113,27 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
     float peakL=0,peakR=0;
     auto* left=buffer.getWritePointer(0);
     auto* right=channels>1?buffer.getWritePointer(1):nullptr;
+    const bool tracking=active==5 || (target==5 && requestedMorph>.0001f)
+                        || (previous==5 && remaining>0);
+    if(tracking && right) {
+        // Correlation-aware mid/side tracking prevents opposite-polarity stereo
+        // from cancelling the tuner input. One block RMS decision with
+        // hysteresis avoids samplewise channel switching/distortion.
+        double midEnergy=0.,sideEnergy=0.;
+        for(int i=0;i<length;++i) {
+            const double l=std::isfinite(left[i])?double(left[i]):0.;
+            const double r=std::isfinite(right[i])?double(right[i]):0.;
+            midEnergy+=(l+r)*(l+r);
+            sideEnergy+=(l-r)*(l-r);
+        }
+        if(sideEnergy>midEnergy*1.2) pitchFromSide=true;
+        else if(midEnergy>sideEnergy*1.2) pitchFromSide=false;
+    }
     for(int i=0;i<length;++i) {
         const float a=std::isfinite(left[i])?left[i]:0.f;
         const float b=right?(std::isfinite(right[i])?right[i]:0.f):a;
-        if(active==5||(target==5 && requestedMorph>.0001f)||(previous==5&&remaining>0))
-            pitchTracker.push(.5f*(a+b));
+        if(tracking)
+            pitchTracker.push(.5f*(a+(pitchFromSide?-b:b)));
         auto main=controlSmoothers[size_t(active)].next(primary);
         main.pitch=pitchTracker.pitch();main.confidence=pitchTracker.conf();
         auto wet=engines.process(active,a,b,main);

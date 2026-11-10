@@ -144,7 +144,7 @@ public:
             const double v=ring[(head-1u-static_cast<unsigned>(i))&2047];
             energy+=v*v;
         }
-        if(energy<1.e-6){confidence=0;return;}
+        if(energy<1.e-6){confidence=0;hz=0;return;}
         const int lo=std::max(8,int(effective/950.0));
         const int hi=std::min(350,int(effective/72.0));
         double best=-1,prev=-2,prev2=-2;int lagBest=0;
@@ -309,7 +309,9 @@ public:
                 cachedSpread=newSpread;
                 tunedRatio=std::exp2(newSpread/12.);
             }
-            const double glide=.001+.14*(1.-bound(p.extras[1]));
+            // Per-sample one-pole coefficient in seconds, not a fixed
+            // coefficient: equivalent glide time at 44.1/48/96/192 kHz.
+            const double glide=1./(1.+sr*(.00015+.045*bound(p.extras[1])));
             const double harmonics=1.+std::round(3.*bound(p.extras[2]));
             const double track=double(bound(p.extras[0]));
             const bool following=p.confidence>.8f && p.pitch>45.f;

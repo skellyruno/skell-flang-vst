@@ -19,9 +19,9 @@ const char* knobNames[][4]{
     {"TRACK","GLIDE","HARMONIC","RESONANCE"}
 };
 const juce::Colour tints[]{
-    juce::Colour::fromRGB(47,217,255),juce::Colour::fromRGB(255,176,46),
-    juce::Colour::fromRGB(166,107,255),juce::Colour::fromRGB(255,47,179),
-    juce::Colour::fromRGB(77,139,255),juce::Colour::fromRGB(214,255,58)
+    juce::Colour::fromRGB(81,222,188),juce::Colour::fromRGB(65,207,216),
+    juce::Colour::fromRGB(154,219,179),juce::Colour::fromRGB(124,207,207),
+    juce::Colour::fromRGB(93,192,220),juce::Colour::fromRGB(177,222,156)
 };
 const char* presets[]{
     "INIT","Lush Choir Bus","Vocal Double Wash","Crypt Ensemble",
@@ -52,7 +52,36 @@ void panelRect(juce::Graphics&g,float x,float y,float w,float h){
 }
 
 void FlangLookAndFeel::drawLinearSlider(juce::Graphics& g,int x,int y,int w,int h,
-                                       float pos,float,float,juce::Slider::SliderStyle,juce::Slider&) {
+                                       float pos,float,float,juce::Slider::SliderStyle style,juce::Slider&) {
+    // LinearHorizontal is used by MORPH. It cannot share a vertical thumb
+    // coordinate: JUCE's slider position is an X coordinate in this mode.
+    if(style==juce::Slider::LinearHorizontal) {
+        const float centreY=float(y)+float(h)*.5f;
+        const float start=float(x)+11.f;
+        const float finish=float(x+w)-11.f;
+        const float thumbX=std::clamp(pos,start,finish);
+        g.setColour(juce::Colour::fromRGB(7,17,19));
+        g.fillRoundedRectangle(start,centreY-3.f,finish-start,6.f,3.f);
+        g.setColour(juce::Colour::fromRGB(47,75,69));
+        g.drawRoundedRectangle(start,centreY-3.f,finish-start,6.f,3.f,.8f);
+        for(int i=0;i<=8;++i) {
+            const float px=start+(finish-start)*float(i)/8.f;
+            g.setColour(juce::Colour::fromRGB(99,139,127).withAlpha(.65f));
+            g.drawLine(px,centreY-8.f,px,centreY-6.f,.75f);
+        }
+        if(thumbX>start) {
+            g.setColour(accent.withAlpha(.90f));
+            g.fillRoundedRectangle(start,centreY-2.f,thumbX-start,4.f,2.f);
+        }
+        const auto handle=juce::Rectangle<float>(thumbX-7.f,centreY-9.f,14.f,18.f);
+        g.setColour(juce::Colour::fromRGB(24,44,44));
+        g.fillRoundedRectangle(handle,3.6f);
+        g.setColour(accent.withAlpha(.93f));
+        g.drawRoundedRectangle(handle,3.6f,1.1f);
+        g.setColour(juce::Colour::fromRGB(206,232,220));
+        g.drawLine(thumbX,centreY-4.f,thumbX,centreY+4.f,1.4f);
+        return;
+    }
     const auto well=juce::Rectangle<float>(float(x+4),float(y+2),float(w-8),float(h-4));
     const float mid=well.getCentreX();
     g.setColour(juce::Colour::fromRGB(8,17,20));g.fillRoundedRectangle(well,5.f);
@@ -68,31 +97,49 @@ void FlangLookAndFeel::drawLinearSlider(juce::Graphics& g,int x,int y,int w,int 
     const juce::Rectangle<float> thumb(mid-half,capY-9.f,half*2.f,18.f);
     g.setColour(juce::Colour::fromRGB(30,49,52));g.fillRoundedRectangle(thumb,4.f);
     g.setColour(juce::Colour::fromRGB(117,160,151));g.drawRoundedRectangle(thumb,4.f,1.f);
-    // An original split-bone indicator instead of a large metallic slider cap.
-    g.setColour(juce::Colour::fromRGB(197,217,207));g.fillEllipse(mid-2.f,capY-4.5f,4.f,4.f);
+    g.setColour(juce::Colour::fromRGB(197,217,207));
+    g.fillEllipse(mid-2.f,capY-4.5f,4.f,4.f);
     g.setColour(accent);g.fillRoundedRectangle(mid-9.f,capY+2.f,18.f,1.8f,.9f);
 }
 
 void FlangLookAndFeel::drawRotarySlider(juce::Graphics&g,int x,int y,int w,int h,
                                         float position,float start,float end,juce::Slider&) {
     const float cx=float(x)+w*.5f,cy=float(y)+h*.5f;
-    const float radius=std::min(w,h)*.32f;
-    g.setColour(juce::Colour::fromRGB(6,14,16));
-    g.fillEllipse(cx-radius-3,cy-radius-3,2*radius+6,2*radius+6);
-    g.setColour(juce::Colour::fromRGB(60,89,85));
-    g.drawEllipse(cx-radius-3,cy-radius-3,2*radius+6,2*radius+6,1.4f);
-    juce::Path arc;
-    arc.addCentredArc(cx,cy,radius+3,radius+3,0,start,start+(end-start)*position,true);
-    g.setColour(accent);g.strokePath(arc,juce::PathStrokeType(2.3f));
-    g.setColour(juce::Colour::fromRGB(37,55,57));
-    g.fillEllipse(cx-radius,cy-radius,2*radius,2*radius);
-    g.setColour(juce::Colour::fromRGB(92,125,119));
-    g.drawEllipse(cx-radius,cy-radius,2*radius,2*radius,.8f);
+    const float radius=std::min(w,h)*.325f;
+    const auto outer=juce::Rectangle<float>(cx-radius-3.f,cy-radius-3.f,
+                                           2.f*radius+6.f,2.f*radius+6.f);
+    const auto face=juce::Rectangle<float>(cx-radius,cy-radius,2.f*radius,2.f*radius);
+    // Sculpted dark-steel ring and a restrained light catching the upper rim.
+    // This is vector JUCE painting, not a scaled image or per-frame blur.
+    g.setColour(juce::Colour::fromRGB(3,10,12));
+    g.fillEllipse(outer.translated(0.f,1.f));
+    g.setColour(juce::Colour::fromRGB(65,91,86));
+    g.drawEllipse(outer,1.f);
+    juce::Path unfilled;
+    unfilled.addCentredArc(cx,cy,radius+4.f,radius+4.f,0.f,start,end,true);
+    g.setColour(juce::Colour::fromRGB(38,66,62));
+    g.strokePath(unfilled,juce::PathStrokeType(2.2f));
+    juce::Path active;
+    active.addCentredArc(cx,cy,radius+4.f,radius+4.f,0.f,
+                         start,start+(end-start)*position,true);
+    g.setColour(accent.withAlpha(.95f));
+    g.strokePath(active,juce::PathStrokeType(2.4f,juce::PathStrokeType::curved,
+                                             juce::PathStrokeType::rounded));
+    g.setGradientFill(juce::ColourGradient(
+        juce::Colour::fromRGB(54,79,79),face.getX(),face.getY(),
+        juce::Colour::fromRGB(15,29,32),face.getRight(),face.getBottom(),false));
+    g.fillEllipse(face);
+    g.setColour(juce::Colour::fromRGB(119,148,138).withAlpha(.76f));
+    g.drawEllipse(face.reduced(.7f),.9f);
+    g.setColour(juce::Colour::fromRGB(13,28,30));
+    g.fillEllipse(face.reduced(radius*.42f));
     const float angle=start+(end-start)*position;
+    const float dx=std::sin(angle),dy=-std::cos(angle);
     g.setColour(bone);
-    g.drawLine(cx,cy,cx+std::sin(angle)*radius*.72f,cy-std::cos(angle)*radius*.72f,2.8f);
-    g.setColour(juce::Colour::fromRGB(8,14,15));
-    g.fillEllipse(cx-2.f,cy-2.f,4.f,4.f);
+    g.drawLine(cx+dx*radius*.34f,cy+dy*radius*.34f,
+               cx+dx*radius*.76f,cy+dy*radius*.76f,2.5f);
+    g.setColour(accent.withAlpha(.9f));
+    g.fillEllipse(cx-1.65f,cy-1.65f,3.3f,3.3f);
 }
 
 void FlangLookAndFeel::drawButtonBackground(juce::Graphics&g,juce::Button&button,
@@ -184,6 +231,9 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
     }
     morph.setSliderStyle(juce::Slider::LinearHorizontal);
     morph.setTextBoxStyle(juce::Slider::NoTextBox,false,0,0);
+    morph.setDoubleClickReturnValue(true,0.0);
+    morph.setTooltip("Crossfade into the selected target effect");
+    morph.setComponentID("morph");
     addAndMakeVisible(morph);
     morphLink=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         p.parameters,"morph",morph);
@@ -307,7 +357,12 @@ void SkellFlangAudioProcessorEditor::updateMode() {
     const int mode=std::clamp(raw?int(raw->load()):0,0,5);
     if(mode==shownMode)return;
     shownMode=mode;
-    skin.accent=juce::Colour::fromRGB(107,226,193);
+    // Coordinated six-mode hues: restrained cyan/mint family rather than
+    // unrelated bright colours across an otherwise monochrome faceplate.
+    skin.accent=tints[mode];
+    for(auto& slider:faders)slider.repaint();
+    for(auto& slider:knobs)slider.repaint();
+    order.repaint();morph.repaint();
     for(int i=0;i<6;++i)tabs[i].setToggleState(i==mode,juce::dontSendNotification);
     for(int i=0;i<4;++i)label(knobLabels[3+i],knobNames[mode][i]);
     updatePage();
