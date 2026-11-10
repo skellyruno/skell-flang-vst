@@ -100,6 +100,23 @@ int main(){
         }
     }
 
+    // Controls must start moving the first sample, but never jump a whole block.
+    for(double sr:{44100.,96000.,192000.}) {
+        ControlSmoother smoother;smoother.prepare(sr);
+        Controls a,b;a.depth=0.f;a.feedback=-.9f;b=a;b.depth=1.f;b.feedback=.9f;
+        REQUIRE(smoother.next(a).depth==0.f);
+        auto first=smoother.next(b);
+        REQUIRE(first.depth>0.f&&first.depth<.02f);
+        REQUIRE(first.feedback>-.9f&&first.feedback<-.85f);
+        float last=first.depth;
+        for(int i=1;i<16;++i){
+            const auto p=smoother.next(b);
+            REQUIRE(p.depth>=last&&p.depth<1.f);
+            last=p.depth;
+        }
+        for(int i=0;i<int(sr*.030);++i)last=smoother.next(b).depth;
+        REQUIRE(last>.99f);
+    }
     // Silence must clear pitch confidence; don't tune resonators to stale notes.
     PitchTracker gated;gated.prepare(48000);
     for(int i=0;i<48000;++i)gated.push(float(std::sin(2*pi*220*i/48000.)));
