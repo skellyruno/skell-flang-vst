@@ -3,11 +3,11 @@
 #include <cmath>
 
 namespace {
-constexpr int baseW=960,baseH=600;
-const juce::Colour dark=juce::Colour::fromRGB(6,9,10);
-const juce::Colour panel=juce::Colour::fromRGB(20,26,29);
-const juce::Colour bone=juce::Colour::fromRGB(232,230,218);
-const juce::Colour muted=juce::Colour::fromRGB(140,158,147);
+constexpr int baseW=720,baseH=450;
+const juce::Colour dark=juce::Colour::fromRGB(7,12,14);
+const juce::Colour panel=juce::Colour::fromRGB(17,26,29);
+const juce::Colour bone=juce::Colour::fromRGB(226,239,230);
+const juce::Colour muted=juce::Colour::fromRGB(143,169,164);
 const char* modes[]={"CHORUS","FLANGER","VOWEL","REVERSE","ORBIT","TUNED"};
 const char* lanes[]={"DEPTH","SPEED","DELAY","SPREAD","CROSS","DRY","WET"};
 const char* knobNames[][4]{
@@ -42,69 +42,74 @@ void styleSlider(juce::Slider& slider,bool vertical){
 void label(juce::Label& text,const juce::String& content){
     text.setText(content,juce::dontSendNotification);
     text.setJustificationType(juce::Justification::centred);
-    text.setFont(juce::Font(11.5f));
+    text.setFont(juce::Font(12.5f));
     text.setColour(juce::Label::textColourId,muted);
 }
 void panelRect(juce::Graphics&g,float x,float y,float w,float h){
-    g.setColour(panel);g.fillRoundedRectangle(x,y,w,h,10.f);
-    g.setColour(juce::Colour::fromRGB(45,54,57));g.drawRoundedRectangle(x,y,w,h,10.f,1.f);
+    g.setColour(panel);g.fillRoundedRectangle(x,y,w,h,9.f);
+    g.setColour(juce::Colour::fromRGB(45,54,57));g.drawRoundedRectangle(x,y,w,h,9.f,.9f);
 }
 }
+
 void FlangLookAndFeel::drawLinearSlider(juce::Graphics& g,int x,int y,int w,int h,
-                                        float pos,float,float,juce::Slider::SliderStyle,juce::Slider&) {
-    auto well=juce::Rectangle<float>(float(x+4),float(y+4),float(w-8),float(h-8));
-    g.setColour(juce::Colour::fromRGB(11,17,20));g.fillRoundedRectangle(well,6.f);
-    g.setColour(juce::Colour::fromRGB(38,48,50));g.drawRoundedRectangle(well,6.f,1.f);
+                                       float pos,float,float,juce::Slider::SliderStyle,juce::Slider&) {
+    const auto well=juce::Rectangle<float>(float(x+4),float(y+2),float(w-8),float(h-4));
     const float mid=well.getCentreX();
-    for(int k=0;k<19;++k){
-        const float yy=well.getY()+8.f+k*(well.getHeight()-16.f)/18.f;
-        g.setColour(juce::Colour::fromRGB(71,83,78).withAlpha(.5f));
-        g.drawLine(mid-18,yy,mid+18,yy,.6f);
+    g.setColour(juce::Colour::fromRGB(8,17,20));g.fillRoundedRectangle(well,5.f);
+    g.setColour(juce::Colour::fromRGB(35,55,55));g.drawRoundedRectangle(well,5.f,.8f);
+    for(int k=0;k<13;++k) {
+        const float yy=well.getY()+12.f+k*(well.getHeight()-24.f)/12.f;
+        g.setColour(juce::Colour::fromRGB(59,86,83).withAlpha(.45f));
+        g.drawLine(mid-10.f,yy,mid+10.f,yy,.7f);
     }
-    const float capY=std::clamp(pos,well.getY()+14.f,well.getBottom()-14.f);
-    g.setColour(accent.withAlpha(.6f));g.drawLine(mid,capY,mid,well.getBottom()-4.f,2.f);
-    juce::Path cap;
-    cap.startNewSubPath(mid-22,capY-13);
-    cap.lineTo(mid+22,capY-13);
-    cap.lineTo(mid+19,capY+13);
-    cap.lineTo(mid-19,capY+13);
-    cap.closeSubPath();
-    g.setColour(juce::Colour::fromRGB(53,65,65));g.fillPath(cap);
-    g.setColour(juce::Colour::fromRGB(131,154,145));g.strokePath(cap,juce::PathStrokeType(1.f));
-    g.setColour(juce::Colour::fromRGB(9,13,15));g.fillRect(mid-13.f,capY-1.5f,26.f,3.f);
-    g.setColour(accent);g.fillRect(mid-10.f,capY-.7f,20.f,1.4f);
-    g.setColour(juce::Colour::fromRGB(173,183,165));g.fillEllipse(mid-3.f,capY-9.f,6.f,6.f);
+    const float capY=std::clamp(pos,well.getY()+11.f,well.getBottom()-11.f);
+    g.setColour(accent.withAlpha(.48f));g.drawLine(mid,well.getBottom()-10.f,mid,capY,2.f);
+    const float half=std::min(16.f,well.getWidth()*.45f);
+    const juce::Rectangle<float> thumb(mid-half,capY-9.f,half*2.f,18.f);
+    g.setColour(juce::Colour::fromRGB(30,49,52));g.fillRoundedRectangle(thumb,4.f);
+    g.setColour(juce::Colour::fromRGB(117,160,151));g.drawRoundedRectangle(thumb,4.f,1.f);
+    // An original split-bone indicator instead of a large metallic slider cap.
+    g.setColour(juce::Colour::fromRGB(197,217,207));g.fillEllipse(mid-2.f,capY-4.5f,4.f,4.f);
+    g.setColour(accent);g.fillRoundedRectangle(mid-9.f,capY+2.f,18.f,1.8f,.9f);
 }
+
 void FlangLookAndFeel::drawRotarySlider(juce::Graphics&g,int x,int y,int w,int h,
                                         float position,float start,float end,juce::Slider&) {
-    const auto bounds=juce::Rectangle<float>(float(x),float(y),float(w),float(h));
-    const float cx=bounds.getCentreX(),cy=bounds.getCentreY();
-    const float radius=std::min(w,h)*.37f;
-    g.setColour(juce::Colour::fromRGB(9,14,16));g.fillEllipse(cx-radius-4,cy-radius-4,2*radius+8,2*radius+8);
-    g.setColour(juce::Colour::fromRGB(56,72,70));g.drawEllipse(cx-radius-4,cy-radius-4,2*radius+8,2*radius+8,2.f);
+    const float cx=float(x)+w*.5f,cy=float(y)+h*.5f;
+    const float radius=std::min(w,h)*.32f;
+    g.setColour(juce::Colour::fromRGB(6,14,16));
+    g.fillEllipse(cx-radius-3,cy-radius-3,2*radius+6,2*radius+6);
+    g.setColour(juce::Colour::fromRGB(60,89,85));
+    g.drawEllipse(cx-radius-3,cy-radius-3,2*radius+6,2*radius+6,1.4f);
     juce::Path arc;
-    arc.addCentredArc(cx,cy,radius+4,radius+4,0,start,start+(end-start)*position,true);
-    g.setColour(accent);g.strokePath(arc,juce::PathStrokeType(2.5f));
-    juce::ColourGradient grad(juce::Colour::fromRGB(79,94,93),cx-radius,cy-radius,
-                              juce::Colour::fromRGB(25,33,37),cx+radius,cy+radius,false);
-    g.setGradientFill(grad);g.fillEllipse(cx-radius,cy-radius,2*radius,2*radius);
+    arc.addCentredArc(cx,cy,radius+3,radius+3,0,start,start+(end-start)*position,true);
+    g.setColour(accent);g.strokePath(arc,juce::PathStrokeType(2.3f));
+    g.setColour(juce::Colour::fromRGB(37,55,57));
+    g.fillEllipse(cx-radius,cy-radius,2*radius,2*radius);
+    g.setColour(juce::Colour::fromRGB(92,125,119));
+    g.drawEllipse(cx-radius,cy-radius,2*radius,2*radius,.8f);
     const float angle=start+(end-start)*position;
     g.setColour(bone);
-    g.drawLine(cx,cy,cx+std::sin(angle)*radius*.74f,cy-std::cos(angle)*radius*.74f,3.f);
-    g.setColour(juce::Colour::fromRGB(8,12,12));g.fillEllipse(cx-3,cy-3,6,6);
+    g.drawLine(cx,cy,cx+std::sin(angle)*radius*.72f,cy-std::cos(angle)*radius*.72f,2.8f);
+    g.setColour(juce::Colour::fromRGB(8,14,15));
+    g.fillEllipse(cx-2.f,cy-2.f,4.f,4.f);
 }
+
 void FlangLookAndFeel::drawButtonBackground(juce::Graphics&g,juce::Button&button,
                                              const juce::Colour&,bool hover,bool down) {
     const auto b=button.getLocalBounds().toFloat().reduced(1.f);
-    g.setColour(down||button.getToggleState()?accent.withAlpha(.23f):
-                hover?panel.brighter(.16f):panel);
+    const bool selected=button.getToggleState();
+    g.setColour(selected?accent.withAlpha(.15f):
+                hover?juce::Colour::fromRGB(25,43,44):juce::Colour::fromRGB(14,24,27));
     g.fillRoundedRectangle(b,5.f);
-    g.setColour((down||button.getToggleState())?accent:juce::Colour::fromRGB(61,76,69));
-    g.drawRoundedRectangle(b,5.f,1.f);
+    g.setColour(selected?accent.withAlpha(.86f):juce::Colour::fromRGB(40,67,64));
+    g.drawRoundedRectangle(b,5.f,selected?1.2f:.8f);
+    if(down){g.setColour(accent.withAlpha(.20f));g.fillRoundedRectangle(b.reduced(2.f),4.f);}
 }
 SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioProcessor&p)
 : AudioProcessorEditor(&p),processor(p) {
     setLookAndFeel(&skin);
+    page=juce::jlimit(0,2,int(p.parameters.state.getProperty("uiPage",0)));
     for(int i=0;i<7;++i){
         styleSlider(faders[i],true);addAndMakeVisible(faders[i]);
         label(faderLabels[i],lanes[i]);addAndMakeVisible(faderLabels[i]);
@@ -156,6 +161,16 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
     syncLink=std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
         p.parameters,"lfoSync",sync);
     addAndMakeVisible(preset);addAndMakeVisible(settings);
+    const char* pageNames[]{"CORE","COLOR","MOTION"};
+    for(int i=0;i<3;++i) {
+        pages[i].setButtonText(pageNames[i]);addAndMakeVisible(pages[i]);
+        pages[i].onClick=[this,i] {
+            page=i;
+            processor.parameters.state.setProperty("uiPage",page,nullptr);
+            updatePage();
+            repaint();
+        };
+    }
     const juce::Component::SafePointer<SkellFlangAudioProcessorEditor> safeEditor(this);
     preset.onClick=[this,safeEditor]{
         juce::PopupMenu menu;
@@ -167,58 +182,76 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
     };
     settings.onClick=[this,safeEditor]{
         juce::PopupMenu menu;
-        menu.addItem(1,"UI Scale 75%");menu.addItem(2,"UI Scale 100%");
-        menu.addItem(3,"UI Scale 125%");menu.addItem(4,"UI Scale 150%");
+        menu.addItem(1,"Compact (540 x 338)");menu.addItem(2,"Comfortable (720 x 450)");
+        menu.addItem(3,"Large (900 x 563)");menu.addItem(4,"Studio (1080 x 675)");
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&settings),
             [safeEditor](int selection){
                 if(safeEditor&&selection>0) {
-                    const float factor=.5f+.25f*selection;
-                    safeEditor->setSize(int(baseW*factor),int(baseH*factor));
+                    const int widths[]{540,720,900,1080};
+                    const int w=widths[selection-1];
+                    safeEditor->setSize(w,juce::roundToInt(w*double(baseH)/baseW));
                 }
             });
     };
     setResizable(true,true);
     if(auto* c=getConstrainer())c->setFixedAspectRatio(double(baseW)/baseH);
-    setResizeLimits(720,450,1440,900);
-    setSize(baseW,baseH);
+    setResizeLimits(540,338,1080,675);
+    setSize(540,338);
     updateMode();
-    startTimerHz(30);
+    startTimerHz(24);
 }
 SkellFlangAudioProcessorEditor::~SkellFlangAudioProcessorEditor(){
     stopTimer();setLookAndFeel(nullptr);
 }
+
 void SkellFlangAudioProcessorEditor::resized() {
     const float s=getWidth()/float(baseW);
-    auto place=[s](juce::Component&c,int x,int y,int w,int h){
-        c.setBounds(int(x*s),int(y*s),int(w*s),int(h*s));
+    auto place=[s](juce::Component&c,int x,int y,int w,int h) {
+        c.setBounds(juce::roundToInt(x*s),juce::roundToInt(y*s),
+                    juce::roundToInt(w*s),juce::roundToInt(h*s));
     };
-    place(settings,12,9,60,31);place(preset,312,8,390,33);place(power,851,9,94,32);
-    for(int i=0;i<6;++i)place(tabs[i],104+i*100,59,94,39);
-    place(target,163,102,128,26);place(morph,313,105,370,24);
-    place(order,23,147,60,258);
-    for(int i=0;i<7;++i){
-        place(faders[i],101+i*84,143,73,264);
-        place(faderLabels[i],98+i*84,412,80,26);
+    place(settings,14,12,51,29);place(preset,338,12,231,29);place(power,601,12,104,29);
+    for(int i=0;i<6;++i)place(tabs[i],16+i*115,62,109,36);
+    place(order,25,151,52,158);
+    for(int i=0;i<7;++i) {
+        place(faders[i],93+i*62,151,49,158);
+        place(faderLabels[i],88+i*62,307,59,21);
     }
-    place(shape,722,324,122,30);place(sync,851,324,91,30);
-    place(root,722,324,105,30);place(scale,831,324,110,30);
-    place(tuneSource,722,363,124,30);
-    for(int i=0;i<7;++i){
-        const int xx=i<2?24+i*100:i==2?740:242+(i-3)*119;
-        place(knobs[i],xx,492,70,66);
-        place(knobLabels[i],xx-15,553,101,21);
+    for(int i=0;i<3;++i)place(pages[i],27,354+i*23,81,22);
+    for(int i=0;i<7;++i) {
+        const int xx=i<3?(247+i*151):(236+(i-3)*111);
+        place(knobs[i],xx,351,59,59);
+        place(knobLabels[i],xx-23,406,105,17);
     }
+    place(target,249,350,130,30);place(morph,395,350,281,29);
+    place(shape,249,386,125,29);place(sync,388,385,102,30);
+    place(root,249,386,91,28);place(scale,348,386,130,28);
+    place(tuneSource,492,386,131,28);
+    updatePage();
+}
+void SkellFlangAudioProcessorEditor::updatePage() {
+    for(int i=0;i<3;++i)pages[i].setToggleState(i==page,juce::dontSendNotification);
+    for(int i=0;i<7;++i) {
+        const bool show=page==(i<3?0:1);
+        knobs[i].setVisible(show);knobLabels[i].setVisible(show);
+    }
+    const bool motion=page==2;
+    target.setVisible(motion);morph.setVisible(motion);
+    shape.setVisible(motion&&shownMode!=5);
+    sync.setVisible(motion&&shownMode!=5);
+    root.setVisible(motion&&shownMode==5);
+    scale.setVisible(motion&&shownMode==5);
+    tuneSource.setVisible(motion&&shownMode==5);
 }
 void SkellFlangAudioProcessorEditor::updateMode() {
     const auto* raw=processor.parameters.getRawParameterValue("mode");
     const int mode=std::clamp(raw?int(raw->load()):0,0,5);
     if(mode==shownMode)return;
     shownMode=mode;
-    skin.accent=tints[mode];
+    skin.accent=juce::Colour::fromRGB(107,226,193);
     for(int i=0;i<6;++i)tabs[i].setToggleState(i==mode,juce::dontSendNotification);
     for(int i=0;i<4;++i)label(knobLabels[3+i],knobNames[mode][i]);
-    shape.setVisible(mode!=5);sync.setVisible(mode!=5);
-    root.setVisible(mode==5);scale.setVisible(mode==5);tuneSource.setVisible(mode==5);
+    updatePage();
     repaint();
 }
 void SkellFlangAudioProcessorEditor::timerCallback(){
