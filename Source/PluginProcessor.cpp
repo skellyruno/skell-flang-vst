@@ -55,9 +55,11 @@ void SkellFlangAudioProcessor::prepareToPlay(double sr,int) {
     engines.prepare(rate);pitchTracker.prepare(rate);
     dryMix.reset(rate,.02);wetMix.reset(rate,.02);outputMix.reset(rate,.02);
     powerMix.reset(rate,.01);morphMix.reset(rate,.04);
+    crossMix.reset(rate,.025);
     dryMix.setCurrentAndTargetValue(.75f);wetMix.setCurrentAndTargetValue(.55f);
     outputMix.setCurrentAndTargetValue(1.f);powerMix.setCurrentAndTargetValue(1.f);
     morphMix.setCurrentAndTargetValue(0.f);
+    crossMix.setCurrentAndTargetValue(std::clamp(raw("cross"),0.f,1.f));
     active=std::clamp(int(raw("mode")),0,5);previous=active;remaining=0;
     transition=std::max(1,int(rate*.04));
     holdL=holdR=0;sampleCount=0;
@@ -97,6 +99,7 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
     outputMix.setTargetValue(juce::Decibels::decibelsToGain(raw("output")));
     powerMix.setTargetValue(raw("power")>.5f?1.f:0.f);
     morphMix.setTargetValue(raw("morph"));
+    crossMix.setTargetValue(std::clamp(raw("cross"),0.f,1.f));
     float peakL=0,peakR=0;
     auto* left=buffer.getWritePointer(0);
     auto* right=channels>1?buffer.getWritePointer(1):nullptr;
@@ -131,12 +134,10 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
             }
             --remaining;
         }
-        // CROSS slider exchanges stereo wet energy; ORBIT already builds ear cues.
-        if(active!=4) {
-            const float c=std::clamp(primary.cross,0.f,1.f)*.5f;
-            const float wl=wet[0],wr=wet[1];
-            wet[0]=wl*(1-c)+wr*c;wet[1]=wr*(1-c)+wl*c;
-        }
+        // Continuous smoothing avoids zipper clicks under fast DAW automation.
+        // ORBIT handles its own ear-to-ear positioning, but advance the ramp.
+        const float cross=crossMix.getNextValue();
+        if(active!=4)wet=skellflang::stereoCrossfeed(wet[0],wet[1],cross);
         const float dry=dryMix.getNextValue(),wetGain=wetMix.getNextValue();
         const float output=outputMix.getNextValue(),power=powerMix.getNextValue();
         const float l=a*(1-power)+power*output*(dry*a+wetGain*wet[0]);
