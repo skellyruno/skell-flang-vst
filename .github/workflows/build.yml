@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+# A newer commit supersedes earlier heavy MSVC builds while iterating.
+concurrency:
+  group: skell-flang-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   windows-vst3:
     runs-on: windows-latest
