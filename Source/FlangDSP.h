@@ -199,7 +199,10 @@ public:
     std::array<float,2> process(int which,float l,float r,const Controls& p) noexcept {
         const int mode=std::clamp(which,0,5);
         const int n=std::clamp(p.order,1,8);
-        const double hz=p.sync ? (std::clamp(p.bpm,20.,400.)/60.0)/std::pow(2.,double(2+std::clamp(p.shape,0,4))) : (.02+12.*bound(p.speed));
+        // Avoid std::pow in the per-sample path, particularly in morph mode.
+        static constexpr double syncDivisors[]{4.,8.,16.,32.,64.};
+        const double hz=p.sync ? (std::clamp(p.bpm,20.,400.)/60.0)/
+            syncDivisors[std::clamp(p.shape,0,4)] : (.02+12.*bound(p.speed));
         const double step=std::min((mode==4?hz*(.5+.9*bound(p.extras[3])):hz)/sr,.2);
         const double cycle=phase[mode];
         phase[mode]+=step;
