@@ -47,7 +47,9 @@ private:
     std::array<skellflang::ControlSmoother,6> controlSmoothers;
     juce::SmoothedValue<float,juce::ValueSmoothingTypes::Linear> dryMix,wetMix,outputMix,powerMix,morphMix,crossMix;
     int active=0,previous=0,remaining=0,transition=1;
-    float holdL=0,holdR=0;uint64_t sampleCount=0;
+    float holdL=0,holdR=0,cpuDisplay=0.f;
+    int scopeStride=32,scopeCounter=0;
+    unsigned scopeIndex=0;
     double rate=48000.0;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SkellFlangAudioProcessor)
 };
