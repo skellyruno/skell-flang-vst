@@ -263,47 +263,94 @@ void SkellFlangAudioProcessorEditor::timerCallback(){
 void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     const float s=getWidth()/float(baseW);
     g.fillAll(dark);
-    g.saveState();g.addTransform(juce::AffineTransform::scale(s));
-    juce::ColourGradient bg(juce::Colour::fromRGB(16,22,24),0,50,
-                            juce::Colour::fromRGB(4,7,8),960,600,true);
-    g.setGradientFill(bg);g.fillRect(0,0,baseW,baseH);
-    g.setColour(juce::Colour::fromRGB(7,10,11));g.fillRect(0,0,960,48);
-    panelRect(g,13,129,78,316);panelRect(g,95,129,604,316);
-    panelRect(g,710,128,239,315);panelRect(g,14,463,820,117);
-    g.setColour(skin.accent);g.fillRoundedRectangle(18.f,10.f,32.f,30.f,6.f);
-    g.setColour(dark);
-    g.fillEllipse(26.f,17.f,16.f,13.f);
-    g.fillRect(29,28,10,5);
-    g.setFont(juce::Font(25.f,juce::Font::bold));g.setColour(bone);
-    g.drawText("SKELL-FLANG",58,5,244,29,juce::Justification::centredLeft);
-    g.setColour(skin.accent);g.setFont(juce::Font(10.f));
-    g.drawText("BEND THE BONES",59,32,220,13,juce::Justification::left);
-    g.setColour(muted);g.setFont(juce::Font(11.5f));
-    g.drawText("ORD",19,420,67,19,juce::Justification::centred);
-    g.drawText("MORPH",99,106,60,20,juce::Justification::centred);
-    g.drawText("LIVE SIGNAL",727,143,140,18,juce::Justification::left);
-    g.drawText(shownMode==5?"KEY / TUNING":"LFO / TEMPO",723,302,181,18,juce::Justification::left);
-    g.drawText("SIGNAL",853,473,82,19,juce::Justification::centred);
-    const auto px=processor.meters.peaks[0].load(),py=processor.meters.peaks[1].load();
-    g.setColour(juce::Colour::fromRGB(9,14,17));g.fillRoundedRectangle(722.f,163.f,215.f,128.f,5.f);
-    g.setColour(juce::Colour::fromRGB(47,65,59));g.drawLine(724.f,226.f,935.f,226.f,.8f);
-    juce::Path scope;
+    g.saveState();
+    g.addTransform(juce::AffineTransform::scale(s));
+
+    // Asymmetric "instrument rack" layout: one clean fader deck, one monitor,
+    // and context-sensitive controls below. No asset scaling, per-frame blurs,
+    // duplicated container frames or continuous full-window gradients.
+    g.setColour(juce::Colour::fromRGB(9,17,19));
+    g.fillRect(0,0,baseW,52);
+    g.setColour(juce::Colour::fromRGB(30,55,52));
+    g.drawLine(14.f,51.f,706.f,51.f,.85f);
+
+    panelRect(g,14,111,516,221);
+    panelRect(g,538,111,169,221);
+    panelRect(g,14,342,693,82);
+
+    // The rib emblem is drawn, not a reused skull logo or a PNG.
+    const auto glow=skin.accent;
+    g.setColour(glow);
+    g.drawLine(82.f,18.f,82.f,38.f,1.8f);
+    for(int i=0;i<3;++i) {
+        const float yy=21.f+float(i)*5.f;
+        g.drawLine(82.f,yy,74.f,yy-2.f,1.25f);
+        g.drawLine(82.f,yy,90.f,yy-2.f,1.25f);
+    }
+    g.setColour(bone);g.setFont(juce::Font(20.f,juce::Font::bold));
+    g.drawText("SKELL-FLANG",100,8,220,29,juce::Justification::centredLeft);
+    g.setColour(glow.withAlpha(.9f));g.setFont(juce::Font(10.5f));
+    g.drawText("BEND THE BONES  /  MODULATION ENGINE",102,34,225,12,
+               juce::Justification::centredLeft);
+
+    g.setColour(muted);g.setFont(juce::Font(10.5f));
+    g.drawText("01  /  CONTROL DECK",27,119,170,18,juce::Justification::left);
+    g.drawText("ORD",24,307,54,19,juce::Justification::centred);
+    g.drawText("02  /  SIGNAL",550,119,143,18,juce::Justification::left);
+
+    // Small technical divider motifs make the layout distinctive, not busy.
+    g.setColour(glow.withAlpha(.50f));
+    g.fillRoundedRectangle(27.f,139.f,33.f,1.3f,.5f);
+    g.fillRoundedRectangle(550.f,139.f,27.f,1.3f,.5f);
+
+    const juce::Rectangle<float> scope(552.f,153.f,141.f,112.f);
+    g.setColour(juce::Colour::fromRGB(8,17,19));
+    g.fillRoundedRectangle(scope,5.f);
+    g.setColour(juce::Colour::fromRGB(38,68,63));
+    g.drawRoundedRectangle(scope,5.f,.8f);
+    g.setColour(juce::Colour::fromRGB(38,80,70).withAlpha(.55f));
+    g.drawLine(scope.getX()+5.f,scope.getCentreY(),
+               scope.getRight()-5.f,scope.getCentreY(),.75f);
+
+    juce::Path signal;
     for(int i=0;i<64;++i) {
-        const float v=processor.meters.scope[size_t(i)].load(std::memory_order_relaxed);
-        const float x=726.f+float(i)*3.25f,y=226.f-std::clamp(v,-1.f,1.f)*51.f;
-        if(i==0)scope.startNewSubPath(x,y);else scope.lineTo(x,y);
+        const float value=processor.meters.scope[size_t(i)].load(std::memory_order_relaxed);
+        const float xx=558.f+float(i)*(129.f/63.f);
+        const float yy=scope.getCentreY()-std::clamp(value,-1.f,1.f)*43.f;
+        if(i==0)signal.startNewSubPath(xx,yy);else signal.lineTo(xx,yy);
     }
-    g.setColour(skin.accent.withAlpha(.88f));g.strokePath(scope,juce::PathStrokeType(1.4f));
-    for(int i=0;i<2;++i) {
-        g.setColour(juce::Colour::fromRGB(13,22,19));g.fillRoundedRectangle(float(875+i*28),495.f,17.f,69.f,2.f);
-        const float peak=std::clamp(i==0?px:py,0.f,1.f);
-        g.setColour(peak>.94f?juce::Colours::orange:skin.accent);
-        g.fillRoundedRectangle(float(875+i*28),564.f-63.f*peak,17.f,63.f*peak,2.f);
+    g.setColour(glow.withAlpha(.90f));
+    g.strokePath(signal,juce::PathStrokeType(1.35f));
+
+    g.setColour(muted);g.setFont(juce::Font(10.5f));
+    const juce::String annotation=shownMode==5
+        ? ("PITCH  "+juce::String(processor.meters.pitch.load(std::memory_order_relaxed),1)+" Hz")
+        : ("MODE  /  "+juce::String(modes[std::clamp(shownMode,0,5)]));
+    g.drawText(annotation,554,274,142,16,juce::Justification::left);
+    for(int ch=0;ch<2;++ch) {
+        const float peak=std::clamp(processor.meters.peaks[ch].load(std::memory_order_relaxed),0.f,1.f);
+        const float y=299.f+ch*14.f;
+        g.setColour(juce::Colour::fromRGB(27,50,49));
+        g.fillRoundedRectangle(554.f,y,136.f,5.f,2.f);
+        g.setColour(peak>.94f?juce::Colour::fromRGB(238,161,103):glow);
+        if(peak>0.f)g.fillRoundedRectangle(554.f,y,136.f*peak,5.f,2.f);
     }
-    g.setColour(muted);g.setFont(juce::Font(11.f));
-    g.drawText("HOST "+juce::String(processor.meters.bpm.load(),1)+" BPM   •   PDC 0   •   CPU "+
-               juce::String(processor.meters.cpu.load(),1)+"%   •   "+modes[std::max(0,shownMode)],
-               22,577,855,22,juce::Justification::left);
-    g.setColour(skin.accent.withAlpha(.65f));g.fillRect(0,599,960,1);
+
+    g.setColour(muted);g.setFont(juce::Font(10.5f));
+    const char* pageCaption=page==0?"CORE CONTROLS":page==1?"MODE CHARACTER":"ROUTING + CLOCK";
+    g.drawText(pageCaption,123,357,108,16,juce::Justification::centredLeft);
+    if(page==2) {
+        g.setColour(glow.withAlpha(.8f));g.setFont(juce::Font(10.f));
+        g.drawText("MORPH",247,337,85,13,juce::Justification::left);
+        g.drawText(shownMode==5?"SCALE LOCK":"LFO SHAPE",247,374,122,12,
+                   juce::Justification::left);
+    }
+
+    g.setColour(muted);g.setFont(juce::Font(10.f));
+    g.drawText("HOST "+juce::String(processor.meters.bpm.load(std::memory_order_relaxed),1)+
+               " BPM    /    PDC "+juce::String(processor.getLatencySamples())+
+               "    /    CPU "+juce::String(processor.meters.cpu.load(std::memory_order_relaxed),1)+
+               "%    /    "+juce::String(modes[std::clamp(shownMode,0,5)]),
+               20,430,685,18,juce::Justification::centredLeft);
     g.restoreState();
 }
