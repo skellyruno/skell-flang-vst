@@ -43,6 +43,16 @@ int main(){
             REQUIRE(peak<=1.001);
         }
     }
+    // CROSS must actually swap the wet channels at 100%, preserve mono energy,
+    // and stay finite for all supported automation values.
+    for(float x:{0.f,.2f,.5f,1.f}) {
+        const auto cross=stereoCrossfeed(.75f,-.25f,x);
+        REQUIRE(std::isfinite(cross[0]) && std::isfinite(cross[1]));
+        REQUIRE(std::abs(cross[0]+cross[1]-.5f)<1.e-5f);
+    }
+    const auto swapped=stereoCrossfeed(.75f,-.25f,1.f);
+    REQUIRE(std::abs(swapped[0]+.25f)<1.e-5f);
+    REQUIRE(std::abs(swapped[1]-.75f)<1.e-5f);
     // Silence must clear pitch confidence; don't tune resonators to stale notes.
     PitchTracker gated;gated.prepare(48000);
     for(int i=0;i<48000;++i)gated.push(float(std::sin(2*pi*220*i/48000.)));
