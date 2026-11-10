@@ -74,21 +74,22 @@ int main() {
             }
             verify(visible>=25,"Too few visible controls");
             juce::Image rendered(juce::Image::ARGB,width,editor->getHeight(),true);
-            juce::Graphics graphics(rendered);
-            // paintEntireComponent may skip an offscreen Graphics on the
-            // unattended Windows CI desktop, depending on the native peer's
-            // effective visible region. Exercise the actual component painters
-            // directly and composite their visible children in JUCE z order.
-            editor->paint(graphics);
-            for(int c=0;c<editor->getNumChildComponents();++c) {
-                auto* child=editor->getChildComponent(c);
-                if(child==nullptr||!child->isVisible())continue;
-                graphics.saveState();
-                graphics.addTransform(juce::AffineTransform::translation(
-                    float(child->getX()),float(child->getY())));
-                graphics.reduceClipRegion(child->getLocalBounds());
-                child->paint(graphics);
-                graphics.restoreState();
+            {
+                // The software/native graphics context must be closed before
+                // getPixelAt or PNG encoding: Windows may defer writes until
+                // the Graphics destructor flushes the backing image.
+                juce::Graphics graphics(rendered);
+                editor->paint(graphics);
+                for(int c=0;c<editor->getNumChildComponents();++c) {
+                    auto* child=editor->getChildComponent(c);
+                    if(child==nullptr||!child->isVisible())continue;
+                    graphics.saveState();
+                    graphics.addTransform(juce::AffineTransform::translation(
+                        float(child->getX()),float(child->getY())));
+                    graphics.reduceClipRegion(child->getLocalBounds());
+                    child->paint(graphics);
+                    graphics.restoreState();
+                }
             }
             const auto top=rendered.getPixelAt(width/2,2);
             const auto center=rendered.getPixelAt(width/2,editor->getHeight()/2);
