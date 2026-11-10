@@ -66,7 +66,9 @@ void SkellFlangAudioProcessor::prepareToPlay(double sr,int) {
     crossMix.setCurrentAndTargetValue(std::clamp(raw("cross"),0.f,1.f));
     active=std::clamp(int(raw("mode")),0,5);previous=active;remaining=0;
     transition=std::max(1,int(rate*.04));
-    holdL=holdR=0;sampleCount=0;
+    holdL=holdR=cpuDisplay=0.f;
+    scopeStride=std::max(1,int(std::lround(rate/1500.0)));
+    scopeCounter=0;scopeIndex=0;
     meters.scopeNext.store(0,std::memory_order_relaxed);
     for(auto& v:meters.scope)v.store(0.f,std::memory_order_relaxed);
     setLatencySamples(0); // No artificial PDC mismatch between dry and wet.
@@ -157,20 +159,27 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
         left[i]=right?safeL:.5f*(safeL+safeR);
         if(right)right[i]=safeR;
         peakL=std::max(peakL,std::abs(safeL));peakR=std::max(peakR,std::abs(safeR));
-        if((++sampleCount&31u)==0u) {
-            const auto index=unsigned((sampleCount/32u)%64u);
-            meters.scope[index].store(.5f*(safeL+safeR),std::memory_order_relaxed);
-            meters.scopeNext.store((index+1u)%64u,std::memory_order_release);
+        if(++scopeCounter>=scopeStride) {
+            scopeCounter=0;
+            meters.scope[scopeIndex].store(.5f*(safeL+safeR),std::memory_order_relaxed);
+            scopeIndex=(scopeIndex+1u)%64u;
+            meters.scopeNext.store(scopeIndex,std::memory_order_release);
         }
     }
-    holdL=std::max(peakL,holdL*.93f);holdR=std::max(peakR,holdR*.93f);
+    // A consistent meter decay independent of host block size.
+    const float release=std::exp(float(-1.0*length/(rate*.18)));
+    holdL=std::max(peakL,holdL*release);
+    holdR=std::max(peakR,holdR*release);
     meters.peaks[0].store(holdL,std::memory_order_relaxed);
     meters.peaks[1].store(holdR,std::memory_order_relaxed);
     meters.pitch.store(pitchTracker.pitch(),std::memory_order_relaxed);
     meters.confidence.store(pitchTracker.conf(),std::memory_order_relaxed);
     const double processing=juce::Time::highResolutionTicksToSeconds(
         juce::Time::getHighResolutionTicks()-stamp);
-    meters.cpu.store(float(std::min(999.,100.*processing/(length/rate))),std::memory_order_relaxed);
+    const float cpuInstant=float(std::min(999.,100.*processing/(length/rate)));
+    const float cpuWeight=float(1.-std::exp(-length/(rate*.25)));
+    cpuDisplay+=cpuWeight*(cpuInstant-cpuDisplay);
+    meters.cpu.store(cpuDisplay,std::memory_order_relaxed);
 }
 void SkellFlangAudioProcessor::getStateInformation(juce::MemoryBlock& m) {
     if(auto xml=parameters.copyState().createXml())copyXmlToBinary(*xml,m);
