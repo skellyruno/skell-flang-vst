@@ -47,7 +47,7 @@ void label(juce::Label& text,const juce::String& content){
 }
 void panelRect(juce::Graphics&g,float x,float y,float w,float h){
     g.setColour(panel);g.fillRoundedRectangle(x,y,w,h,9.f);
-    g.setColour(juce::Colour::fromRGB(45,54,57));g.drawRoundedRectangle(x,y,w,h,9.f,.9f);
+    g.setColour(juce::Colour::fromRGB(33,54,51));g.drawRoundedRectangle(x,y,w,h,9.f,.8f);
 }
 }
 
@@ -116,10 +116,10 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         dropdown->setColour(juce::ComboBox::outlineColourId,juce::Colour::fromRGB(52,80,74));
         dropdown->setColour(juce::ComboBox::arrowColourId,juce::Colour::fromRGB(128,208,182));
     }
-    setColour(juce::PopupMenu::backgroundColourId,juce::Colour::fromRGB(15,27,29));
-    setColour(juce::PopupMenu::textColourId,bone);
-    setColour(juce::PopupMenu::highlightedBackgroundColourId,juce::Colour::fromRGB(45,81,76));
-    setColour(juce::PopupMenu::highlightedTextColourId,bone);
+    skin.setColour(juce::PopupMenu::backgroundColourId,juce::Colour::fromRGB(15,27,29));
+    skin.setColour(juce::PopupMenu::textColourId,bone);
+    skin.setColour(juce::PopupMenu::highlightedBackgroundColourId,juce::Colour::fromRGB(45,81,76));
+    skin.setColour(juce::PopupMenu::highlightedTextColourId,bone);
     page=juce::jlimit(0,2,int(p.parameters.state.getProperty("uiPage",0)));
     for(int i=0;i<7;++i){
         styleSlider(faders[i],true);addAndMakeVisible(faders[i]);
@@ -152,14 +152,22 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         knobLinks[i]=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
             p.parameters,id,knobs[i]);
     }
+    const char* modeDescriptions[]{
+        "Wide multi-voice chorus","Classic sweeping comb flanger",
+        "Animated resonant vowel filter","Granular reverse-swell modulation",
+        "Rotating stereo motion","Pitch and key-following comb"
+    };
     for(int i=0;i<6;++i){
-        tabs[i].setButtonText(modes[i]);addAndMakeVisible(tabs[i]);
+        tabs[i].setButtonText(modes[i]);
+        tabs[i].setTooltip(modeDescriptions[i]);
+        addAndMakeVisible(tabs[i]);
         tabs[i].onClick=[this,i]{
             if(auto*param=processor.parameters.getParameter("mode")){
                 param->beginChangeGesture();
                 param->setValueNotifyingHost(param->convertTo0to1(float(i)));
                 param->endChangeGesture();
             }
+            updateMode(); // No 24 Hz UI polling delay on direct mode click.
         };
     }
     for(int i=0;i<6;++i)target.addItem(modes[i],i+1);
@@ -179,15 +187,28 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
     addAndMakeVisible(morph);
     morphLink=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         p.parameters,"morph",morph);
+    power.setClickingTogglesState(true);
+    sync.setClickingTogglesState(true);
+    power.setTooltip("Enable or bypass the entire effect");
+    sync.setTooltip("Follow the host tempo");
     addAndMakeVisible(power);addAndMakeVisible(sync);
     powerLink=std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
         p.parameters,"power",power);
     syncLink=std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
         p.parameters,"lfoSync",sync);
     addAndMakeVisible(preset);addAndMakeVisible(settings);
+    preset.setTooltip("Choose an original Skell-Flang sound");
+    settings.setTooltip("Plugin size and scaling");
     const char* pageNames[]{"CORE","COLOR","MOTION"};
+    const char* pageHints[]{
+        "Main level, feedback, tone, output",
+        "Four mode-dependent character controls",
+        "Morph destination and host sync / tuning"
+    };
     for(int i=0;i<3;++i) {
-        pages[i].setButtonText(pageNames[i]);addAndMakeVisible(pages[i]);
+        pages[i].setButtonText(pageNames[i]);
+        pages[i].setTooltip(pageHints[i]);
+        addAndMakeVisible(pages[i]);
         pages[i].onClick=[this,i] {
             page=i;
             processor.parameters.state.setProperty("uiPage",page,nullptr);
@@ -201,7 +222,10 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         for(int i=0;i<19;++i)menu.addItem(i+1,presets[i]);
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&preset),
             [safeEditor](int selected){
-                if(safeEditor&&selected>0)safeEditor->processor.applyFactoryPreset(selected-1);
+                if(safeEditor&&selected>0){
+                    safeEditor->processor.applyFactoryPreset(selected-1);
+                    safeEditor->updateMode();
+                }
             });
     };
     settings.onClick=[this,safeEditor]{
@@ -231,7 +255,11 @@ SkellFlangAudioProcessorEditor::~SkellFlangAudioProcessorEditor(){
 }
 
 void SkellFlangAudioProcessorEditor::resized() {
-    const float s=getWidth()/float(baseW);
+    const int currentWidth=getWidth();
+    if(currentWidth>=540&&currentWidth<=1080&&
+       int(processor.parameters.state.getProperty("uiWidth",540))!=currentWidth)
+        processor.parameters.state.setProperty("uiWidth",currentWidth,nullptr);
+    const float s=currentWidth/float(baseW);
     // JUCE child components are independent of the graphics scale. Resize text
     // explicitly or compact mode inherits oversized fonts.
     const auto fontSize=juce::jlimit(9.2f,12.5f,12.5f*s);
@@ -289,6 +317,11 @@ void SkellFlangAudioProcessorEditor::timerCallback(){
     updateMode();
     const juce::String name=processor.parameters.state.getProperty("presetName","INIT").toString();
     if(preset.getButtonText()!=name)preset.setButtonText(name);
+    if(const auto* enabled=processor.parameters.getRawParameterValue("power")) {
+        const juce::String caption=enabled->load(std::memory_order_relaxed)>.5f
+                                     ? "ACTIVE" : "BYPASS";
+        if(power.getButtonText()!=caption)power.setButtonText(caption);
+    }
     const float scaleFactor=getWidth()/float(baseW);
     repaint(juce::roundToInt(536*scaleFactor),juce::roundToInt(111*scaleFactor),
             juce::roundToInt(171*scaleFactor),juce::roundToInt(221*scaleFactor));
@@ -379,7 +412,7 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     }
 
     g.setColour(muted);g.setFont(juce::Font(10.5f));
-    const char* pageCaption=page==0?"CORE CONTROLS":page==1?"MODE CHARACTER":"ROUTING + CLOCK";
+    const char* pageCaption=page==0?"MIX / DRIVE":page==1?"CHARACTER":"MOD / CLOCK";
     g.drawText(pageCaption,123,357,108,16,juce::Justification::centredLeft);
     if(page==2) {
         g.setColour(glow.withAlpha(.8f));g.setFont(juce::Font(10.f));

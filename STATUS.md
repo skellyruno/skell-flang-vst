@@ -1,4 +1,4 @@
-# Status — Skell-Flang v0.4
+# Status — Skell-Flang v0.5
 
 - VST3-only CMake target and GitHub packaging; standalone removed by request.
 - DSP: six prototypes, bounded ring buffers, Hermite fractional reads, feedback saturation; improved mode-specific knob mapping, tuned glide, and shimmer.
@@ -33,3 +33,15 @@
 - Dynamic GUI value tooltips, readable realtime footer, stable compact 540 x 338 editor.
 - Synchronized LFO rates avoid per-sample power calculations; multiple older CI builds are canceled when superseded.
 - Remaining: FL Studio realtime stress at 32-128 sample blocks, pluginval, actual measured CPU and audio listening tests.
+
+## v0.5 — compact UI + audio-path efficiency
+- Only Windows VST3 produced; JUCE/CMake plugin IDs unchanged.
+- Replaced active-output ±1.0 hard clipping with float headroom and exceptional ±16 safety clamp; full bypass retains finite input.
+- Reverse granular processing now interpolates a precomputed 2049-sample Hann table, avoiding per-grain audio-thread trigonometry.
+- TUNED caches root/scale key frequencies and computes iterative detune ratios, reducing expensive per-sample operations.
+- The panel/preset/mode interactions receive immediate state updates; popup menu colours follow the plugin LookAndFeel.
+- Power and tempo sync are themed text toggles; page captions shortened to avoid clipping at 540×338.
+- Manual resize width is persisted; factory presets and automation parameter identities are unchanged.
+- Portable regression tests include output headroom/non-finite guards and tuning-cache invalidation.
+- Pending: pluginval, FL Studio actual load and host-boundary automation testing, latency contract for any future true through-zero mode, CPU profiling with full 8-voice morph and grains.
+

@@ -35,6 +35,15 @@ GitHub Actions **Build Skell-Flang Windows VST3 Only** builds and packages only 
 - Waveform scope displays 64 ordered samples representing approximately 43 ms at any sample rate. Peak decay and CPU indication are independent of host audio buffer size.
 - Delay buffers allocate in prepareToPlay. Our per-sample DSP uses fixed state with no explicit locks, file I/O or heap allocations.
 - Real FL Studio listening, pluginval, and CPU profiling at 32/64/128 samples per block are still required.
+## v0.5 polishing and CPU work
+
+- **Windows VST3-only** remains the sole build target; no standalone app or EXE.
+- **Mix headroom fixed:** the previous processed-output hard clamp at ±1.0 is removed. The output retains normal floating-point DAW headroom above 0 dBFS, with a conservative ±16 guard against abnormal, non-finite or runaway values; fully bypassed finite input passes through unchanged.
+- **Reverse-grain CPU optimization:** each EngineBank builds a 2,049-point Hann window during prepare, then interpolates it when playing grains. This removes repeated `cos()` calls in the reverse audio loop without changing its allocation model.
+- **Tuned-mode CPU optimization:** key frequencies are cached until the selected root or scale changes; voice detune ratios are multiplied iteratively rather than recomputing `pow()` for each voice on every sample. A small spread threshold avoids redundant ratio updates.
+- **Compact UI:** unified power and host-sync buttons, shorter panel titles, responsive mode and preset selections, actual dark popup-menu styling, and saved host-dragged window width.
+- **Tests:** added above-0 dBFS headroom and mid-stream tuned-key-change checks. The new builds must still be validated in FL Studio, including mode changes, overs and dense morphs, before commercial release.
+
 ## DSP behavior and limitations
 
 The delay-line Hermite interpolation and feedback filtering are bounded and allocated in `prepareToPlay`. Modulated voice delay times now use a 3.5 ms slew filter and feedback automation uses an independent 8 ms filter, calculated per sample without heap allocation. Host PDC is fixed at **0 samples**, avoiding an artificial misalignment of the dry and wet flanging signals. The reverse-grain effect has natural creative time offset but no extra host-declared delay.

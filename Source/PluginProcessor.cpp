@@ -153,9 +153,10 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
         const float output=outputMix.getNextValue(),power=powerMix.getNextValue();
         const float l=a*(1-power)+power*output*(dry*a+wetGain*wet[0]);
         const float r=b*(1-power)+power*output*(dry*b+wetGain*wet[1]);
-        // A fully bypassed plugin must preserve above-0dBFS input unchanged.
-        const float safeL=power<=0.f?a:(std::isfinite(l)?std::clamp(l,-1.f,1.f):0.f);
-        const float safeR=power<=0.f?b:(std::isfinite(r)?std::clamp(r,-1.f,1.f):0.f);
+        // Preserve floating-point DAW headroom. Full bypass remains bit-transparent
+        // for finite samples; active mix only guards runaway/non-finite values.
+        const float safeL=power<=0.f?a:skellflang::safeHostOutput(l);
+        const float safeR=power<=0.f?b:skellflang::safeHostOutput(r);
         left[i]=right?safeL:.5f*(safeL+safeR);
         if(right)right[i]=safeR;
         peakL=std::max(peakL,std::abs(safeL));peakR=std::max(peakR,std::abs(safeR));

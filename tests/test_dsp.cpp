@@ -2,6 +2,7 @@
 #include <array>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #define REQUIRE(x) do { if(!(x)) throw std::runtime_error("FAILED: " #x); } while(false)
 int main(){
@@ -9,6 +10,12 @@ int main(){
     Delay d;d.prepare(48000,1);
     d.write(1);d.write(0);d.write(0);
     REQUIRE(std::abs(d.read(3)-1)<.03f);
+    // Headroom regression: processed DAW output must not hard-clip at 0 dBFS.
+    REQUIRE(safeHostOutput(1.5f)==1.5f);
+    REQUIRE(safeHostOutput(-2.5f)==-2.5f);
+    REQUIRE(safeHostOutput(100.f)==16.f);
+    REQUIRE(safeHostOutput(std::numeric_limits<float>::infinity())==0.f);
+    REQUIRE(safeHostOutput(std::numeric_limits<float>::quiet_NaN())==0.f);
     PitchTracker pitch;pitch.prepare(48000);
     for(int i=0;i<48000;++i)pitch.push(float(std::sin(2*pi*220.*i/48000.)));
     std::cout<<"f0="<<pitch.pitch()<<" confidence="<<pitch.conf()<<"\n";
@@ -131,6 +138,27 @@ int main(){
         }
         REQUIRE(detected>=0 && detected<9600); // update in under 200 ms
         REQUIRE(tracker.pitch()>405.f && tracker.pitch()<475.f);
+    }
+    // Cache invalidation: changing the KEY root during playback must retune
+    // the resonators immediately, without reallocating the eight comb voices.
+    {
+        EngineBank current,changed;
+        current.prepare(48000);changed.prepare(48000);
+        Controls one,two;
+        one.mode=two.mode=5;
+        one.tuneSource=two.tuneSource=1;
+        one.order=two.order=4;
+        one.root=two.root=0;
+        one.feedback=two.feedback=.30f;
+        double difference=0.;
+        for(int i=0;i<24000;++i) {
+            if(i==3500)two.root=2;
+            const float x=float(.3*std::sin(2*pi*160.*i/48000.));
+            const auto a=current.process(5,x,-x,one);
+            const auto b=changed.process(5,x,-x,two);
+            if(i>3500)difference+=std::abs(a[0]-b[0]);
+        }
+        REQUIRE(difference>1.);
     }
     // Silence must clear pitch confidence; don't tune resonators to stale notes.
     PitchTracker gated;gated.prepare(48000);

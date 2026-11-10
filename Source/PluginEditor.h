@@ -39,7 +39,7 @@ private:
     std::array<juce::TextButton,6> tabs;
     juce::ComboBox target,shape,root,scale,tuneSource;
     std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>,5> comboLinks;
-    juce::ToggleButton power{"POWER"},sync{"SYNC"};
+    juce::TextButton power{"ACTIVE"},sync{"SYNC"};
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> powerLink,syncLink;
     juce::TextButton preset{"INIT"}, settings{"SIZE"};
     std::array<juce::TextButton,3> pages;

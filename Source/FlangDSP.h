@@ -11,6 +11,11 @@ constexpr double pi = 3.14159265358979323846;
 inline float saturate(float x) noexcept {
     return std::isfinite(x) ? std::tanh(std::clamp(x, -8.f, 8.f)) : 0.f;
 }
+// Float DAW signal paths must retain headroom > 0 dBFS. Clamp only
+// pathological runaway values; never impose a 0 dBFS brickwall on the mix.
+inline float safeHostOutput(float x) noexcept {
+    return std::isfinite(x) ? std::clamp(x, -16.f, 16.f) : 0.f;
+}
 inline float bound(float x, float lo=0.f, float hi=1.f) noexcept {
     return std::clamp(std::isfinite(x) ? x : lo, lo, hi);
 }
@@ -193,6 +198,12 @@ public:
         sr=std::max(8000.0,sampleRate);
         for(auto& mode:voices)for(auto& v:mode)v.prepare(sr);
         for(auto& d:reverse)d.prepare(sr,1.5);
+        for(size_t i=0;i<reverseWindow.size();++i){
+            const double t=double(i)/double(reverseWindow.size()-1u);
+            reverseWindow[i]=float(.5-.5*std::cos(2*pi*t));
+        }
+        keyCacheRoot=-1;keyCacheScale=-1;cachedSpread=-1.;
+        tunedRatio=1.;
         for(auto& pair:formants)for(auto& f:pair)f={};
         grains={};phase.fill(0);voicePhase.fill(0);tunedDelay.fill(0);samples.fill(0);grainClock=0;rng=0xFA11B00Du;
     }
@@ -250,16 +261,34 @@ public:
             constexpr int major[]{0,2,4,5,7,9,11};
             constexpr int minor[]{0,2,3,5,7,8,10};
             constexpr int pent[]{0,2,4,7,9};
-            const double root=65.406391325*std::pow(2.,std::clamp(p.root,0,11)/12.);
+            const int rootIndex=std::clamp(p.root,0,11);
+            const int scaleIndex=std::clamp(p.scale,0,3);
+            if(rootIndex!=keyCacheRoot || scaleIndex!=keyCacheScale) {
+                const double root=65.406391325*std::exp2(double(rootIndex)/12.);
+                for(int i=0;i<8;++i) {
+                    const int degree=scaleIndex==0 ? major[i%7]+12*(i/7)
+                        :scaleIndex==1 ? minor[i%7]+12*(i/7)
+                        :scaleIndex==2 ? pent[i%5]+12*(i/5) : i;
+                    keyFrequencies[size_t(i)]=root*std::exp2(double(degree)/12.);
+                }
+                keyCacheRoot=rootIndex;keyCacheScale=scaleIndex;
+            }
+            const double newSpread=double(bound(p.spread));
+            if(std::abs(newSpread-cachedSpread)>1.e-4) {
+                cachedSpread=newSpread;
+                tunedRatio=std::exp2(newSpread/12.);
+            }
+            const double glide=.001+.14*(1.-bound(p.extras[1]));
+            const double harmonics=1.+std::round(3.*bound(p.extras[2]));
+            const double track=double(bound(p.extras[0]));
+            const bool following=p.confidence>.8f && p.pitch>45.f;
+            double voiceRatio=1.;
             for(int i=0;i<n;++i) {
-                int degree=(p.scale==0?major[i%7]+12*(i/7):p.scale==1?minor[i%7]+12*(i/7):p.scale==2?pent[i%5]+12*(i/5):i);
-                const double key=root*std::pow(2.,degree/12.);
-                const double detected=(p.confidence>.8f && p.pitch>45.f)?p.pitch*std::pow(2.,double(i)*p.spread/12.):key;
-                const double track=bound(p.extras[0]);
+                const double key=keyFrequencies[size_t(i)];
+                const double detected=following ? double(p.pitch)*voiceRatio : key;
+                voiceRatio*=tunedRatio;
                 const double f=p.tuneSource==0 ? detected*track+key*(1.-track) : key;
-                const double harmonics=1.+std::round(3.*bound(p.extras[2]));
                 const double goal=std::clamp(sr*harmonics/std::max(45.,f),sr*.00015,sr*.040);
-                const double glide=.001+.14*(1.-bound(p.extras[1]));
                 if(tunedDelay[i]<=0)tunedDelay[i]=goal;
                 tunedDelay[i]+=(goal-tunedDelay[i])*glide;
                 Controls resonant=p;
@@ -331,7 +360,13 @@ private:
         for(auto& g:grains)if(g.active) {
             if(g.age>=g.duration){g.active=false;continue;}
             const float t=float(g.age)/g.duration;
-            const float window=.5f-.5f*std::cos(float(2*pi*t));
+            // Hann interpolation is bandlimited enough for a control envelope.
+            // Lookup avoids up to 32 cos() calls per audio sample.
+            const float position=t*float(reverseWindow.size()-1u);
+            const auto index=std::min(size_t(position),reverseWindow.size()-2u);
+            const float blend=position-float(index);
+            const float window=reverseWindow[index]+
+                blend*(reverseWindow[index+1u]-reverseWindow[index]);
             const double d=g.start+2.0*g.age;
             const float pan=(g.voice%2==0?.3f:-.3f);
             const float shimmer=bound(p.extras[3]);
@@ -352,6 +387,10 @@ private:
     std::array<Delay,2> reverse{};
     std::array<std::array<Biquad,5>,2> formants{};
     std::array<Grain,32> grains{};
+    std::array<float,2049> reverseWindow{};
+    std::array<double,8> keyFrequencies{};
+    double cachedSpread=-1.,tunedRatio=1.;
+    int keyCacheRoot=-1,keyCacheScale=-1;
     std::array<double,6> phase{};
     std::array<double,8> voicePhase{},tunedDelay{};
     std::array<unsigned,6> samples{};
