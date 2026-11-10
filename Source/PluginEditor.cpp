@@ -127,6 +127,10 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         if(auto* param=p.parameters.getParameter(id))
             faders[i].setDoubleClickReturnValue(true,param->convertFrom0to1(param->getDefaultValue()));
         label(faderLabels[i],lanes[i]);addAndMakeVisible(faderLabels[i]);
+        faders[i].onValueChange=[this,i] {
+            faders[i].setTooltip(juce::String(lanes[i])+"  "+
+                juce::String(faders[i].getValue()*100.0,1)+"%");
+        };
         faderLinks[i]=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
             p.parameters,juce::StringArray{"depth","speed","delay","spread","cross","dry","wet"}[i],faders[i]);
     }
@@ -137,6 +141,10 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         styleSlider(knobs[i],false);addAndMakeVisible(knobs[i]);
         label(knobLabels[i],i==0?"FEEDBACK":i==1?"TONE":i==2?"OUTPUT":"MODE");
         addAndMakeVisible(knobLabels[i]);
+        knobs[i].onValueChange=[this,i] {
+            knobs[i].setTooltip(knobLabels[i].getText()+"  "+
+                juce::String(knobs[i].getValue(),2));
+        };
         const auto id=i==0?"feedback":i==1?"tone":i==2?"output":
                       i==3?"extra0":i==4?"extra1":i==5?"extra2":"extra3";
         if(auto* param=p.parameters.getParameter(id))
@@ -345,8 +353,10 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
                scope.getRight()-5.f,scope.getCentreY(),.75f);
 
     juce::Path signal;
+    const auto next=processor.meters.scopeNext.load(std::memory_order_acquire);
     for(int i=0;i<64;++i) {
-        const float value=processor.meters.scope[size_t(i)].load(std::memory_order_relaxed);
+        const auto index=(next+unsigned(i))%64u;
+        const float value=processor.meters.scope[index].load(std::memory_order_relaxed);
         const float xx=558.f+float(i)*(129.f/63.f);
         const float yy=scope.getCentreY()-std::clamp(value,-1.f,1.f)*43.f;
         if(i==0)signal.startNewSubPath(xx,yy);else signal.lineTo(xx,yy);
@@ -380,10 +390,10 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
 
     // Footer remains legible when the editor is scaled to compact mode.
     g.setColour(muted);g.setFont(juce::Font(12.f));
-    g.drawText("HOST "+juce::String(processor.meters.bpm.load(std::memory_order_relaxed),1)+
-               " BPM    /    PDC "+juce::String(processor.getLatencySamples())+
-               "    /    CPU "+juce::String(processor.meters.cpu.load(std::memory_order_relaxed),1)+
-               "%    /    "+juce::String(modes[std::clamp(shownMode,0,5)]),
+    g.drawText("LIVE  /  "+juce::String(processor.meters.bpm.load(std::memory_order_relaxed),1)+
+               " BPM   /   PDC "+juce::String(processor.getLatencySamples())+
+               "   /   CPU "+juce::String(processor.meters.cpu.load(std::memory_order_relaxed),1)+
+               "%   /   "+juce::String(modes[std::clamp(shownMode,0,5)]),
                20,430,685,18,juce::Justification::centredLeft);
     g.restoreState();
 }
