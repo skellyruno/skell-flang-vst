@@ -43,7 +43,7 @@ private:
     skellflang::Controls settings(int mode) const noexcept;
     skellflang::EngineBank engines;
     skellflang::PitchTracker pitchTracker;
-    juce::SmoothedValue<float,juce::ValueSmoothingTypes::Linear> dryMix,wetMix,outputMix,powerMix,morphMix;
+    juce::SmoothedValue<float,juce::ValueSmoothingTypes::Linear> dryMix,wetMix,outputMix,powerMix,morphMix,crossMix;
     int active=0,previous=0,remaining=0,transition=1;
     float holdL=0,holdR=0;uint64_t sampleCount=0;
     double rate=48000.0;
