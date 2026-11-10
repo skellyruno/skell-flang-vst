@@ -363,8 +363,17 @@ void SkellFlangAudioProcessorEditor::updateMode() {
     for(auto& slider:faders)slider.repaint();
     for(auto& slider:knobs)slider.repaint();
     order.repaint();morph.repaint();
+    for(auto& tab:tabs)tab.repaint();
+    for(auto& tab:pages)tab.repaint();
+    power.repaint();sync.repaint();
     for(int i=0;i<6;++i)tabs[i].setToggleState(i==mode,juce::dontSendNotification);
-    for(int i=0;i<4;++i)label(knobLabels[3+i],knobNames[mode][i]);
+    for(int i=0;i<4;++i) {
+        label(knobLabels[3+i],knobNames[mode][i]);
+        // label() also sets its construction font; restore the current
+        // responsive size when a host changes MODE after compact resizing.
+        const float scale=getWidth()/float(baseW);
+        knobLabels[3+i].setFont(juce::Font(juce::jlimit(9.2f,12.5f,12.5f*scale)));
+    }
     updatePage();
     repaint();
 }
@@ -436,6 +445,23 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.fillRoundedRectangle(scope,5.f);
     g.setColour(juce::Colour::fromRGB(38,68,63));
     g.drawRoundedRectangle(scope,5.f,.8f);
+    // Ghost ribs and central spine remain faint under a live waveform.
+    // They are static original vectors, not simulated audio or a bitmap.
+    const float centreX=scope.getCentreX();
+    g.setColour(juce::Colour::fromRGB(51,107,94).withAlpha(.25f));
+    g.drawLine(centreX,scope.getY()+11.f,centreX,scope.getBottom()-11.f,1.f);
+    for(int i=0;i<6;++i) {
+        const float yy=scope.getY()+19.f+float(i)*14.4f;
+        const float reach=36.f+5.f*std::sin(float(i)*.55f);
+        juce::Path rib;
+        rib.startNewSubPath(centreX-3.f,yy);
+        rib.quadraticTo(centreX-reach*.52f,yy-7.f,
+                        centreX-reach,yy+4.f);
+        rib.startNewSubPath(centreX+3.f,yy);
+        rib.quadraticTo(centreX+reach*.52f,yy-7.f,
+                        centreX+reach,yy+4.f);
+        g.strokePath(rib,juce::PathStrokeType(.75f));
+    }
     g.setColour(juce::Colour::fromRGB(38,80,70).withAlpha(.55f));
     g.drawLine(scope.getX()+5.f,scope.getCentreY(),
                scope.getRight()-5.f,scope.getCentreY(),.75f);
@@ -460,10 +486,13 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     for(int ch=0;ch<2;++ch) {
         const float peak=std::clamp(processor.meters.peaks[ch].load(std::memory_order_relaxed),0.f,1.f);
         const float y=299.f+ch*14.f;
+        g.setColour(muted);g.setFont(juce::Font(9.5f));
+        g.drawText(ch==0?"L":"R",553,juce::roundToInt(y-5.f),13,15,
+                   juce::Justification::centred);
         g.setColour(juce::Colour::fromRGB(27,50,49));
-        g.fillRoundedRectangle(554.f,y,136.f,5.f,2.f);
+        g.fillRoundedRectangle(569.f,y,121.f,5.f,2.f);
         g.setColour(peak>.94f?juce::Colour::fromRGB(238,161,103):glow);
-        if(peak>0.f)g.fillRoundedRectangle(554.f,y,136.f*peak,5.f,2.f);
+        if(peak>0.f)g.fillRoundedRectangle(569.f,y,121.f*peak,5.f,2.f);
     }
 
     g.setColour(muted);g.setFont(juce::Font(10.5f));

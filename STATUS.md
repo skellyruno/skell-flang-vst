@@ -56,3 +56,14 @@
 - Real 8-voice and simultaneous 8+8-voice morphing performance benchmark (non-gating measured CPU).
 - Compiler warning cleanup, portable tests build with -Werror, Node24 GitHub actions.
 - Remaining: measured FL Studio experience, real-world listening, true through-zero, 24-hour automation stress and low-spec Windows profiling.
+
+## v0.6.1 — real-editor renderer, sound and visual refinement
+- Bundled the shared SkellCore headless JUCE renderer and added a `SkellCore::UIRenderer` CMake target, using the real processor/editor, not a mock.
+- Real-editor regression harness now captures 20 screenshots across 540/720/900/1080 widths and CORE/COLOR/MOTION/TUNED views, comparing MORPH minimum and maximum.
+- Corrected JUCE's horizontal MORPH thumb/track drawing (the old vertical draw branch mapped X to Y).
+- Machined-steel vector knob design, coordinated understated mode colours, explicit L/R meters, skeletal waveform-monitor geometry, and consistent compact text sizing after mode changes.
+- TUNED pitch input uses a per-block energy/hysteresis mid/side selection, avoiding cancellation of inverted stereo input; real editor host test checks a 440 Hz anti-phase tone.
+- Cleared stale pitch after silence and made resonator glide time consistent between sample rates.
+- Preserved automation IDs, factory presets, plugin identity and zero reported host PDC. Windows VST3 only; the UI smoke executable is used solely in CI, never distributed.
+- Revision `d4ca90ef` passed portable DSP tests, ASan/UBSan, Windows VST3 compilation, Steinberg VST3 validation, pluginval and a 20-scene real-editor render test.
+- Outstanding: genuine through-zero design with an explicit PDC contract, in-DAW FL Studio automation and listening validation, and low-spec Windows/long-duration CPU profiling. Observational Linux CI CPU numbers must not be confused with FL Studio measurements.
