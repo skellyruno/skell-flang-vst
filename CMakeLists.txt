@@ -28,3 +28,16 @@ target_compile_definitions(SkellFlang PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
 target_link_libraries(SkellFlang PRIVATE juce::juce_audio_utils juce::juce_audio_processors juce::juce_gui_extra juce::juce_dsp)
 
 target_link_libraries(SkellFlang PRIVATE SkellCore::DSP SkellCore::UI)
+
+# CI-only editor/render smoke target. Not a standalone audio plugin; the
+# distribution artifact includes VST3 only.
+option(SKELLFLANG_BUILD_UI_SMOKE "Build the JUCE editor smoke-test program" OFF)
+if(SKELLFLANG_BUILD_UI_SMOKE)
+  juce_add_console_app(SkellFlangUiSmoke PRODUCT_NAME "Skell-Flang UI Smoke")
+  juce_generate_juce_header(SkellFlangUiSmoke)
+  target_sources(SkellFlangUiSmoke PRIVATE tests/test_ui_host.cpp)
+  target_compile_features(SkellFlangUiSmoke PRIVATE cxx_std_17)
+  target_compile_definitions(SkellFlangUiSmoke PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+  target_link_libraries(SkellFlangUiSmoke PRIVATE SkellFlang juce::juce_audio_utils juce::juce_gui_extra)
+endif()
+

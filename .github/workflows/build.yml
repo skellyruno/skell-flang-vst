@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Configure
-        run: cmake -S . -B build -A x64
+        run: cmake -S . -B build -A x64 -DSKELLFLANG_BUILD_UI_SMOKE=ON
       - name: Build
         run: cmake --build build --config Release --parallel 2
       - name: Validate manifest and package
@@ -34,6 +34,20 @@ jobs:
           Set-Content -LiteralPath $manifest -Value $normalized -Encoding utf8 -NoNewline
           New-Item -ItemType Directory -Path dist -Force | Out-Null
           Copy-Item -Path $vst.FullName -Destination dist -Recurse -Force
+      - name: Exercise real JUCE editor at four sizes and render test snapshots
+        shell: pwsh
+        run: |
+          $test = Get-ChildItem build -Recurse -File -Filter '*UiSmoke.exe' | Select-Object -First 1
+          if (-not $test) { throw 'UI smoke test program was not built' }
+          & $test.FullName
+          if ($LASTEXITCODE -ne 0) { throw "UI smoke test failed (exit $LASTEXITCODE)" }
+      - name: Save real editor renders for layout inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Skell-Flang-UI-Renders
+          path: build/ui-smoke/*.png
+          if-no-files-found: ignore
       - name: Host and editor validation (pluginval)
         uses: Tracktion/pluginval/validate@v2.0.0-beta3
         with:
@@ -56,6 +70,8 @@ jobs:
         run: cmake --build build-dsp --parallel 2
       - name: Run DSP tests
         run: ctest --test-dir build-dsp --output-on-failure
+      - name: Measure 8-voice and morph CPU on runner
+        run: ./build-dsp/flang-dsp-bench
   portable-dsp-sanitized:
     runs-on: ubuntu-latest
     steps:
