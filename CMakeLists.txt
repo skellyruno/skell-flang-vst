@@ -11,7 +11,7 @@ endif()
 # Freeze revisions; never float against main in a DAW plugin build.
 FetchContent_Declare(SkellWorldCore
   GIT_REPOSITORY https://github.com/skellyruno/skell-vst-template.git
-  GIT_TAG a7dbb900c2a8c0bedebe34d7bd71afb6964dcd45
+  GIT_TAG 214badd41c05bfcc7d7528dba5b5984a6d607cc3
   SOURCE_SUBDIR SkellCore)
 FetchContent_MakeAvailable(SkellWorldCore)
 juce_add_plugin(SkellFlang
