@@ -117,6 +117,21 @@ int main(){
         for(int i=0;i<int(sr*.030);++i)last=smoother.next(b).depth;
         REQUIRE(last>.99f);
     }
+    // A running tuner must follow note changes without buffering the audio.
+    // This measures the control-path response, not an artificial output delay.
+    {
+        PitchTracker tracker;tracker.prepare(48000);
+        for(int i=0;i<24000;++i)
+            tracker.push(float(.65*std::sin(2*pi*220.*i/48000.)));
+        REQUIRE(tracker.pitch()>200.f && tracker.pitch()<240.f);
+        int detected=-1;
+        for(int i=0;i<14400;++i) {
+            tracker.push(float(.65*std::sin(2*pi*440.*i/48000.)));
+            if(detected<0&&tracker.pitch()>365.f&&tracker.conf()>.78f)detected=i;
+        }
+        REQUIRE(detected>=0 && detected<9600); // update in under 200 ms
+        REQUIRE(tracker.pitch()>405.f && tracker.pitch()<475.f);
+    }
     // Silence must clear pitch confidence; don't tune resonators to stale notes.
     PitchTracker gated;gated.prepare(48000);
     for(int i=0;i<48000;++i)gated.push(float(std::sin(2*pi*220*i/48000.)));
