@@ -32,6 +32,7 @@ public:
     struct MeterData {
         std::atomic<float> peaks[2];
         std::atomic<float> scope[64];
+        std::atomic<unsigned> scopeNext{0};
         std::atomic<float> bpm{120.f},cpu{0.f},pitch{0.f},confidence{0.f};
         MeterData() {
             for(auto& x:peaks)x.store(0);
@@ -43,6 +44,7 @@ private:
     skellflang::Controls settings(int mode) const noexcept;
     skellflang::EngineBank engines;
     skellflang::PitchTracker pitchTracker;
+    std::array<skellflang::ControlSmoother,6> controlSmoothers;
     juce::SmoothedValue<float,juce::ValueSmoothingTypes::Linear> dryMix,wetMix,outputMix,powerMix,morphMix,crossMix;
     int active=0,previous=0,remaining=0,transition=1;
     float holdL=0,holdR=0;uint64_t sampleCount=0;
