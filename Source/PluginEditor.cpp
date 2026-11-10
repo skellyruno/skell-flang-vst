@@ -232,9 +232,24 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         juce::PopupMenu menu;
         menu.addItem(1,"Compact (540 x 338)");menu.addItem(2,"Comfortable (720 x 450)");
         menu.addItem(3,"Large (900 x 563)");menu.addItem(4,"Studio (1080 x 675)");
+        menu.addSeparator();
+        menu.addItem(50,processor.worldLink.requested()
+            ? "Leave SkellWorld" : "Join SkellWorld");
+        menu.addItem(51,processor.worldLink.online()
+            ? "World online: "+juce::String(processor.worldLink.peerCount())+" peers"
+            : "World offline (local hub required)",false,false);
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&settings),
             [safeEditor](int selection){
-                if(safeEditor&&selection>0) {
+                if (!safeEditor) return;
+                if (selection==50) {
+                    // UI thread only: no networking, new params, or DSP changes.
+                    if (safeEditor->processor.worldLink.requested())
+                        safeEditor->processor.worldLink.leave();
+                    else
+                        safeEditor->processor.worldLink.join();
+                    return;
+                }
+                if(selection>=1&&selection<=4) {
                     const int widths[]{540,720,900,1080};
                     const int w=widths[selection-1];
                     safeEditor->processor.parameters.state.setProperty("uiWidth",w,nullptr);
@@ -315,6 +330,11 @@ void SkellFlangAudioProcessorEditor::updateMode() {
 }
 void SkellFlangAudioProcessorEditor::timerCallback(){
     updateMode();
+    // Non-audio UI tooltip shows live world status without adding layout clutter.
+    const juce::String worldTip=processor.worldLink.online()
+        ? "SkellWorld connected: "+juce::String(processor.worldLink.peerCount())+" peers"
+        : "SkellWorld offline: open SIZE menu to join";
+    if (settings.getTooltip()!=worldTip) settings.setTooltip(worldTip);
     const juce::String name=processor.parameters.state.getProperty("presetName","INIT").toString();
     if(preset.getButtonText()!=name)preset.setButtonText(name);
     if(const auto* enabled=processor.parameters.getRawParameterValue("power")) {

@@ -64,3 +64,10 @@ JUCE and the shared SkellCore source have separate licensing/provenance obligati
 ## Packaging verification
 
 The Windows CI now parses and normalizes the JUCE-generated `moduleinfo.json` (including trailing commas) before distribution, then uploads `dist/` directly as an Actions artifact containing **only the VST3 bundle**. The portable DSP test suite also runs with AddressSanitizer and UndefinedBehaviorSanitizer. This is packaging and static/runtime test coverage, not a substitute for pluginval or FL Studio host validation.
+
+
+## SkellWorld (opt-in pilot)
+
+Skell-Flang can discover other SkellWorld plugins through the shared SkellCore WorldLink. Run `python tools/skellworld_hub.py` from the **SkellCore template checkout** to start the local-only developer hub, then choose **SIZE → Join SkellWorld** in the plugin. The size menu also shows current online peers. The plugin remains connected if only its editor is closed, until Leave or the instance is unloaded.
+
+Connection is **off by default**; no network code runs on the audio callback, and no parameter IDs, saved preset schemas, DSP algorithms or VST3 identity changed. The hub carries only informational presence/events, not remote parameter control. This integration is a trial PR and needs a Windows VST3 host smoke test before release.
