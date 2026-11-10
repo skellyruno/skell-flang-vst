@@ -87,6 +87,19 @@ int main(){
         REQUIRE(delta>0.01);
     }
 
+
+    // Regression: pitch tracking stays reliable across 96/192 kHz sessions,
+    // including the low register that a fixed /4 decimator would miss.
+    for(const double sr : {96000.,192000.}) {
+        for(const double f : {82.4069,220.0}) {
+            PitchTracker tracker; tracker.prepare(sr);
+            for(int i=0;i<int(sr*.65);++i)
+                tracker.push(float(.6*std::sin(2*pi*f*i/sr)));
+            REQUIRE(std::abs(tracker.pitch()-f)<f*.10);
+            REQUIRE(tracker.conf()>.78f);
+        }
+    }
+
     // Silence must clear pitch confidence; don't tune resonators to stale notes.
     PitchTracker gated;gated.prepare(48000);
     for(int i=0;i<48000;++i)gated.push(float(std::sin(2*pi*220*i/48000.)));

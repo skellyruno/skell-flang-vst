@@ -378,7 +378,8 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
                    juce::Justification::left);
     }
 
-    g.setColour(muted);g.setFont(juce::Font(10.f));
+    // Footer remains legible when the editor is scaled to compact mode.
+    g.setColour(muted);g.setFont(juce::Font(12.f));
     g.drawText("HOST "+juce::String(processor.meters.bpm.load(std::memory_order_relaxed),1)+
                " BPM    /    PDC "+juce::String(processor.getLatencySamples())+
                "    /    CPU "+juce::String(processor.meters.cpu.load(std::memory_order_relaxed),1)+

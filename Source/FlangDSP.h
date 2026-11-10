@@ -59,14 +59,17 @@ private:
 class PitchTracker {
 public:
     void prepare(double rate) noexcept {
-        sr=std::max(8000.0,rate);ring.fill(0);
-        head=ticks=decimate=0;hz=0;confidence=0;
+        sr=std::max(8000.0,rate);
+        // Constant ~12 kHz tracker input rate even at 192 kHz sessions.
+        // Fixed /4 decimation would lose fundamentals below ~137 Hz at 192 kHz.
+        stride=std::max(1,int(std::ceil(sr/12000.0)));
+        ring.fill(0);head=ticks=decimate=0;hz=0;confidence=0;
     }
     void push(float x) noexcept {
-        if(++decimate<4)return;
+        if(++decimate<stride)return;
         decimate=0;ring[head++ & 2047]=std::isfinite(x)?x:0.f;
         if(++ticks<256)return;
-        ticks=0; const double effective=sr*.25;
+        ticks=0; const double effective=sr/double(stride);
         double energy=0;for(int i=0;i<256;i+=4) {
             const double v=ring[(head-1u-static_cast<unsigned>(i))&2047];
             energy+=v*v;
@@ -97,7 +100,7 @@ public:
     float conf() const noexcept{return float(confidence);}
 private:
     std::array<float,2048> ring{};
-    unsigned head=0;int ticks=0,decimate=0;
+    unsigned head=0;int ticks=0,decimate=0,stride=4;
     double sr=48000,hz=0,confidence=0;
 };
 struct Biquad {

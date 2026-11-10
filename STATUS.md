@@ -21,3 +21,4 @@
 - VST3 x86_64-win module binary validated in CI; artifacts no longer include an EXE.
 - New abrupt parameter automation stress and functional sweep-range regression tests.
 - Remaining: true through-zero mode with constant PDC contract, improved formant/vowel models, real host pluginval/FL Studio listening and performance.
+- Pitch tracker now selects a sample-rate-dependent input decimation (about 12 kHz) to retain low-note tracking at 96/192 kHz; regression tests cover 82 Hz and 220 Hz.
