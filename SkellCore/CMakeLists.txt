@@ -17,6 +17,17 @@ if(TARGET juce::juce_gui_basics)
   target_link_libraries(SkellCoreUI INTERFACE juce::juce_gui_basics juce::juce_audio_processors)
 endif()
 
+# Shared real-editor screenshot utility. Mirrors the pinned SkellCore
+# HeadlessUIRenderer API; no other SkellCore modules are upgraded here.
+if(TARGET SkellCoreUI AND TARGET juce::juce_graphics)
+  add_library(SkellCoreRendererSupport INTERFACE)
+  add_library(SkellCore::UIRenderer ALIAS SkellCoreRendererSupport)
+  target_compile_features(SkellCoreRendererSupport INTERFACE cxx_std_17)
+  target_include_directories(SkellCoreRendererSupport INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_link_libraries(SkellCoreRendererSupport INTERFACE
+    SkellCore::UI juce::juce_graphics juce::juce_gui_basics)
+endif()
+
 option(SKELLCORE_BUILD_TESTS "Build portable SkellCore DSP tests" OFF)
 if(SKELLCORE_BUILD_TESTS)
   enable_testing()

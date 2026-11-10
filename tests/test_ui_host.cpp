@@ -1,6 +1,7 @@
 #include "../Source/PluginProcessor.h"
 #include "../Source/PluginEditor.h"
 #include <JuceHeader.h>
+#include <SkellCore/HeadlessUIRenderer.h>
 #include <array>
 #include <cmath>
 #include <iostream>
@@ -55,65 +56,71 @@ int main() {
         auto* core=findButton(*editor,"CORE");
         verify(core!=nullptr && bool(core->onClick),"Core page missing");
         core->onClick();
-        const std::array<int,4> widths{540,720,900,1080};
-        const auto directory=juce::File::getCurrentWorkingDirectory().getChildFile("build/ui-smoke");
-        verify(directory.createDirectory().wasOk(),"Cannot create UI test screenshot folder");
-        juce::PNGImageFormat png;
-        // Verify the unattended runner can actually draw into an ARGB image.
-        // Otherwise a black/transparent snapshot is a test-environment error.
-        juce::Image probe(juce::Image::ARGB,8,8,true);
-        {
-            juce::Graphics g(probe);
-            g.fillAll(juce::Colours::red);
+
+        // Shared SkellCore renderer captures the real editor AND child controls.
+        // Capture all pages in compact/comfortable/large/studio layouts rather
+        // than using an ad-hoc paint() call that misses nested components.
+        skellcore::ui::headless::Options options;
+        options.project="Skell-Flang actual JUCE AudioProcessorEditor";
+        options.minimumColours=12;
+        for(const int width : std::array<int,4>{540,720,900,1080}) {
+            for(int view=0;view<4;++view) {
+                skellcore::ui::headless::Scene scene;
+                const juce::String suffix[]={"flanger-core","flanger-color",
+                                              "flanger-motion","tuned-motion"};
+                scene.id="Skell-Flang-"+juce::String(width)+"-"+suffix[view];
+                scene.width=width;
+                scene.height=juce::roundToInt(double(width)*450./720.);
+                scene.mode=view==3?5:1;
+                scene.theme=view==0?0:view==1?1:2; // UI page, not a cosmetic theme
+                options.scenes.push_back(scene);
+            }
         }
-        verify(probe.getPixelAt(4,4).getRed()>200,
-               "The Windows CI runner cannot render to JUCE software images");
-        for(const auto width:widths) {
-            editor->setSize(width,juce::roundToInt(double(width)*450./720.));
-            verify(editor->getWidth()==width,"Editor ignored requested width");
+        options.configure=[&](const auto& scene) {
+            auto* modeButton=findButton(*editor,scene.mode==5?"TUNED":"FLANGER");
+            verify(modeButton!=nullptr && bool(modeButton->onClick),
+                   "Mode tab cannot be selected");
+            modeButton->onClick();
+            const juce::String names[]{"CORE","COLOR","MOTION"};
+            auto* pageButton=findButton(*editor,names[scene.theme]);
+            verify(pageButton!=nullptr && bool(pageButton->onClick),
+                   "Page tab cannot be selected");
+            pageButton->onClick();
+        };
+        options.inspect=[&]() {
+            juce::StringArray problems;
             const auto bounds=editor->getLocalBounds();
             int visible=0;
             for(int c=0;c<editor->getNumChildComponents();++c) {
                 auto* child=editor->getChildComponent(c);
-                if(child==nullptr||!child->isVisible())continue;
-                verify(bounds.contains(child->getBounds()),"Visible control outside the editor");
-                verify(child->getWidth()>5&&child->getHeight()>5,
-                       "Visible control too small to interact with");
+                if(!child || !child->isVisible())continue;
+                if(!bounds.contains(child->getBounds()))
+                    problems.add("Visible control outside editor: "+child->getName());
+                if(child->getWidth()<=5 || child->getHeight()<=5)
+                    problems.add("Control too small to interact with: "+child->getName());
                 ++visible;
             }
-            verify(visible>=25,"Too few visible controls");
-            juce::Image rendered(juce::Image::ARGB,width,editor->getHeight(),true);
-            {
-                // The software/native graphics context must be closed before
-                // getPixelAt or PNG encoding: Windows may defer writes until
-                // the Graphics destructor flushes the backing image.
-                juce::Graphics graphics(rendered);
-                editor->paint(graphics);
-                for(int c=0;c<editor->getNumChildComponents();++c) {
-                    auto* child=editor->getChildComponent(c);
-                    if(child==nullptr||!child->isVisible())continue;
-                    graphics.saveState();
-                    graphics.addTransform(juce::AffineTransform::translation(
-                        float(child->getX()),float(child->getY())));
-                    graphics.reduceClipRegion(child->getLocalBounds());
-                    child->paint(graphics);
-                    graphics.restoreState();
-                }
-            }
-            const auto top=rendered.getPixelAt(width/2,2);
-            const auto center=rendered.getPixelAt(width/2,editor->getHeight()/2);
-            const auto file=directory.getChildFile("Skell-Flang-"+juce::String(width)+".png");
-            auto stream=file.createOutputStream();
-            verify(stream!=nullptr && png.writeImageToStream(rendered,*stream),
-                   "Failed to write rendered UI snapshot");
-            if(top==center) {
-                std::cout<<"At "<<width<<", top rgba "<<top.toDisplayString(true)
-                         <<", centre rgba "<<center.toDisplayString(true)<<"\n";
-                verify(false,"Rendered editor appears uniformly blank");
-            }
-            std::cout<<"Rendered and checked "<<width<<" x "<<editor->getHeight()
-                     <<" with "<<visible<<" visible controls\n";
-        }
+            if(visible<25)problems.add("Too few visible controls");
+            return problems;
+        };
+        options.mustDiffer={
+            {"Skell-Flang-540-flanger-core","Skell-Flang-540-flanger-color"},
+            {"Skell-Flang-540-flanger-color","Skell-Flang-540-flanger-motion"},
+            {"Skell-Flang-540-flanger-motion","Skell-Flang-540-tuned-motion"}
+        };
+        // Windows CI software rendering sanity check before using snapshots.
+        juce::Image probe(juce::Image::ARGB,8,8,true);
+        {juce::Graphics g(probe);g.fillAll(juce::Colours::red);}
+        verify(probe.getPixelAt(4,4).getRed()>200,
+               "Windows CI software image rendering unavailable");
+        const auto directory=juce::File::getCurrentWorkingDirectory().getChildFile("build/ui-smoke");
+        const auto report=skellcore::ui::headless::render(*editor,directory,options);
+        for(const auto& error:report.errors)
+            std::cerr<<error.toStdString()<<"\\n";
+        verify(report.passed(),"Shared SkellCore renderer reported a visual regression");
+        verify(report.captured==16,"Expected 16 real-editor JUCE screenshots");
+        std::cout<<"SkellCore rendered "<<report.captured
+                 <<" real-editor scenes across four sizes and four views\\n";
         juce::AudioBuffer<float> buffer(2,64);
         juce::MidiBuffer midi;
         for(int pass=0;pass<100;++pass) {
