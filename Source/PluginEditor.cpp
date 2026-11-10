@@ -25,7 +25,7 @@ const juce::Colour tints[]{
 };
 const char* presets[]{
     "INIT","Lush Choir Bus","Vocal Double Wash","Crypt Ensemble",
-    "Jet Skeleton","Through-Zero Whoosh","Grave Ring",
+    "Jet Skeleton","Deep Jet Whoosh","Grave Ring",
     "Talking Bones","Ghost Choir Sweep","Wah Reaper",
     "Bloom Backwards","Spectral Tide","Rage Swell",
     "Skull Carousel","Haunted Merry-Go-Round","Slow Moon",

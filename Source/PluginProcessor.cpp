@@ -199,7 +199,7 @@ void SkellFlangAudioProcessor::applyFactoryPreset(int number) {
         {"Vocal Double Wash",0,4,.3f,.36f,.45f,.62f,.06f},
         {"Crypt Ensemble",0,8,.72f,.09f,.7f,.81f,.15f},
         {"Jet Skeleton",1,4,.81f,.59f,.15f,.9f,.73f},
-        {"Through-Zero Whoosh",1,3,.85f,.1f,.65f,.95f,-.4f},
+        {"Deep Jet Whoosh",1,3,.85f,.1f,.65f,.95f,-.4f},
         {"Grave Ring",1,6,.92f,.78f,.12f,.82f,.82f},
         {"Talking Bones",2,5,.66f,.21f,.46f,.8f,.35f},
         {"Ghost Choir Sweep",2,5,.81f,.12f,.71f,.91f,.24f},

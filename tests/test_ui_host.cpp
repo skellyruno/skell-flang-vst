@@ -29,7 +29,12 @@ int main() {
         // Headless JUCE components start hidden. They must be visible before
         // paintEntireComponent can draw their child-control hierarchy.
         editor->setVisible(true);
+        // attach a real JUCE desktop peer; an unattached component is not
+        // "showing" and paintEntireComponent silently skips its child tree.
+        editor->addToDesktop(0);
+        verify(editor->isShowing(),"Editor must have a visible native peer");
         verify(editor->getWidth()==540,"Compact default width changed unexpectedly");
+        verify(processor.getProgramName(0).isNotEmpty(),"VST3 program has no name");
         auto* flanger=findButton(*editor,"FLANGER");
         verify(flanger!=nullptr,"Flanger mode tab missing");
         verify(bool(flanger->onClick),"Mode callback missing");
@@ -73,11 +78,15 @@ int main() {
             editor->paintEntireComponent(graphics,true);
             const auto top=rendered.getPixelAt(width/2,2);
             const auto center=rendered.getPixelAt(width/2,editor->getHeight()/2);
-            verify(top!=center,"Rendered editor appears uniformly blank");
             const auto file=directory.getChildFile("Skell-Flang-"+juce::String(width)+".png");
             auto stream=file.createOutputStream();
             verify(stream!=nullptr && png.writeImageToStream(rendered,*stream),
                    "Failed to write rendered UI snapshot");
+            if(top==center) {
+                std::cout<<"At "<<width<<", top rgba "<<top.toDisplayString(true)
+                         <<", centre rgba "<<center.toDisplayString(true)<<"\n";
+                verify(false,"Rendered editor appears uniformly blank");
+            }
             std::cout<<"Rendered and checked "<<width<<" x "<<editor->getHeight()
                      <<" with "<<visible<<" visible controls\n";
         }

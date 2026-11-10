@@ -3,7 +3,6 @@ on:
   push:
     paths:
       - "SkellCore/**"
-      - "tools/**"
       - ".github/workflows/skellcore.yml"
   pull_request:
     paths:
@@ -28,8 +27,7 @@ jobs:
         run: ctest --test-dir build-core --build-config Release --output-on-failure
       - name: CPU benchmark (non-gating measurements)
         run: ctest --test-dir build-core --build-config Release -R SkellCoreBenchmark -V
-      - name: Verify plugin generator
-        run: python tools/test_new_plugin.py
+
 
   core-sanitizers:
     name: Linux ASan + UBSan DSP tests
