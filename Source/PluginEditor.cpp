@@ -37,7 +37,7 @@ void styleSlider(juce::Slider& slider,bool vertical){
     slider.setTextBoxStyle(juce::Slider::NoTextBox,false,0,0);
     slider.setMouseDragSensitivity(vertical?180:145);
     slider.setScrollWheelEnabled(true);
-    slider.setDoubleClickReturnValue(true,.5);
+    // Each control restores its own parameter default below, never a hardcoded 0.5.
 }
 void label(juce::Label& text,const juce::String& content){
     text.setText(content,juce::dontSendNotification);
@@ -112,11 +112,14 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
     page=juce::jlimit(0,2,int(p.parameters.state.getProperty("uiPage",0)));
     for(int i=0;i<7;++i){
         styleSlider(faders[i],true);addAndMakeVisible(faders[i]);
+        const auto id=juce::StringArray{"depth","speed","delay","spread","cross","dry","wet"}[i];
+        if(auto* param=p.parameters.getParameter(id))
+            faders[i].setDoubleClickReturnValue(true,param->convertFrom0to1(param->getDefaultValue()));
         label(faderLabels[i],lanes[i]);addAndMakeVisible(faderLabels[i]);
         faderLinks[i]=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
             p.parameters,juce::StringArray{"depth","speed","delay","spread","cross","dry","wet"}[i],faders[i]);
     }
-    styleSlider(order,true);order.setRange(1,8,1);addAndMakeVisible(order);
+    styleSlider(order,true);order.setRange(1,8,1);order.setDoubleClickReturnValue(true,3);addAndMakeVisible(order);
     orderLink=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         p.parameters,"order",order);
     for(int i=0;i<7;++i) {
@@ -125,6 +128,8 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         addAndMakeVisible(knobLabels[i]);
         const auto id=i==0?"feedback":i==1?"tone":i==2?"output":
                       i==3?"extra0":i==4?"extra1":i==5?"extra2":"extra3";
+        if(auto* param=p.parameters.getParameter(id))
+            knobs[i].setDoubleClickReturnValue(true,param->convertFrom0to1(param->getDefaultValue()));
         knobLinks[i]=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
             p.parameters,id,knobs[i]);
     }
@@ -258,7 +263,11 @@ void SkellFlangAudioProcessorEditor::timerCallback(){
     updateMode();
     const juce::String name=processor.parameters.state.getProperty("presetName","INIT").toString();
     if(preset.getButtonText()!=name)preset.setButtonText(name);
-    repaint();
+    const float scaleFactor=getWidth()/float(baseW);
+    repaint(juce::roundToInt(536*scaleFactor),juce::roundToInt(111*scaleFactor),
+            juce::roundToInt(171*scaleFactor),juce::roundToInt(221*scaleFactor));
+    repaint(0,juce::roundToInt(427*scaleFactor),getWidth(),
+            std::max(1,getHeight()-juce::roundToInt(427*scaleFactor)));
 }
 void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     const float s=getWidth()/float(baseW);
