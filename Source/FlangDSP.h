@@ -94,11 +94,17 @@ public:
         // Fixed /4 decimation would lose fundamentals below ~137 Hz at 192 kHz.
         stride=std::max(1,int(std::ceil(sr/12000.0)));
         ring.fill(0);head=ticks=decimate=0;hz=0;confidence=0;
+        preFilter=0.f;
+        decimationAlpha=float(1.-std::exp(-2.*pi*3500./sr));
     }
     void push(float x) noexcept {
+        // Anti-alias before decimation: one pole costs two operations/sample
+        // and avoids folding upper harmonics into the pitch detector.
+        const float input=std::isfinite(x)?x:0.f;
+        preFilter+=(input-preFilter)*decimationAlpha;
         if(++decimate<stride)return;
-        decimate=0;ring[head++ & 2047]=std::isfinite(x)?x:0.f;
-        if(++ticks<256)return;
+        decimate=0;ring[head++ & 2047]=preFilter;
+        if(++ticks<128)return;
         ticks=0; const double effective=sr/double(stride);
         double energy=0;for(int i=0;i<256;i+=4) {
             const double v=ring[(head-1u-static_cast<unsigned>(i))&2047];
@@ -131,6 +137,7 @@ public:
 private:
     std::array<float,2048> ring{};
     unsigned head=0;int ticks=0,decimate=0,stride=4;
+    float preFilter=0.f,decimationAlpha=1.f;
     double sr=48000,hz=0,confidence=0;
 };
 struct Biquad {
