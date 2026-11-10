@@ -32,6 +32,33 @@ struct Controls {
     double bpm=120.0;
     bool sync=false;
 };
+// SPEED chooses tempo division. LFO SHAPE must affect waveform only, never rate.
+inline double lfoFrequency(const Controls& p) noexcept {
+    if(!p.sync)return .02+12.*bound(p.speed);
+    constexpr double divisions[]{64.,32.,16.,8.,4.,2.,1.,.5,.25};
+    const int index=std::clamp(int(bound(p.speed)*8.999f),0,8);
+    const double bpm=std::clamp(std::isfinite(p.bpm)?p.bpm:120.,20.,400.);
+    return (bpm/60.)/divisions[index];
+}
+// Immutable per-instance equal-power gain table: no audio-thread trigonometry.
+class EqualPowerBlend {
+public:
+    void prepare() noexcept {
+        for(size_t i=0;i<table.size();++i) {
+            const double angle=pi*.5*double(i)/double(table.size()-1u);
+            table[i]={float(std::cos(angle)),float(std::sin(angle))};
+        }
+    }
+    std::array<float,2> gains(float amount) const noexcept {
+        const float position=bound(amount)*float(table.size()-1u);
+        const unsigned i=std::min(unsigned(position),unsigned(table.size()-2u));
+        const float fraction=position-float(i);
+        return {table[i][0]+fraction*(table[i+1u][0]-table[i][0]),
+                table[i][1]+fraction*(table[i+1u][1]-table[i][1])};
+    }
+private:
+    std::array<std::array<float,2>,257> table{};
+};
 // Allocation-free, sample-rate-independent automation smoothing.
 // Discrete modes follow the host at block boundaries; DSP values glide per sample.
 class ControlSmoother {
@@ -84,8 +111,10 @@ public:
     void clear() noexcept { std::fill(data.begin(),data.end(),0.f);head=0; }
 private:
     float at(int lag) const noexcept {
-        int index=int(head)-lag; const int n=int(data.size());
-        index%=n; if(index<0)index+=n;
+        // The read lag is always in [2, size-2]. It can wrap at most once,
+        // so avoid a costly integer division/modulo in every interpolated tap.
+        int index=int(head)-lag;
+        if(index<0)index+=int(data.size());
         return data[size_t(index)];
     }
     std::vector<float> data;
@@ -210,10 +239,7 @@ public:
     std::array<float,2> process(int which,float l,float r,const Controls& p) noexcept {
         const int mode=std::clamp(which,0,5);
         const int n=std::clamp(p.order,1,8);
-        // Avoid std::pow in the per-sample path, particularly in morph mode.
-        static constexpr double syncDivisors[]{4.,8.,16.,32.,64.};
-        const double hz=p.sync ? (std::clamp(p.bpm,20.,400.)/60.0)/
-            syncDivisors[std::clamp(p.shape,0,4)] : (.02+12.*bound(p.speed));
+        const double hz=lfoFrequency(p);
         const double step=std::min((mode==4?hz*(.5+.9*bound(p.extras[3])):hz)/sr,.2);
         const double cycle=phase[mode];
         phase[mode]+=step;

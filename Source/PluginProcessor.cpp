@@ -52,7 +52,7 @@ bool SkellFlangAudioProcessor::isBusesLayoutSupported(const BusesLayout& l)const
 }
 void SkellFlangAudioProcessor::prepareToPlay(double sr,int) {
     rate=std::max(8000.0,sr);
-    engines.prepare(rate);pitchTracker.prepare(rate);
+    engines.prepare(rate);pitchTracker.prepare(rate);crossfade.prepare();
     for(auto& smoother:controlSmoothers)smoother.prepare(rate);
     dryMix.reset(rate,.006);wetMix.reset(rate,.006);outputMix.reset(rate,.006);
     powerMix.reset(rate,.005);morphMix.reset(rate,.025);
@@ -128,9 +128,9 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
             alt.pitch=main.pitch;alt.confidence=main.confidence;
             alternate=engines.process(target,a,b,alt);
             haveAlternate=true;
-            const float c=std::cos(amount*float(skellflang::pi*.5));
-            const float s=std::sin(amount*float(skellflang::pi*.5));
-            wet={wet[0]*c+alternate[0]*s,wet[1]*c+alternate[1]*s};
+            const auto gains=crossfade.gains(amount);
+            wet={wet[0]*gains[0]+alternate[0]*gains[1],
+                 wet[1]*gains[0]+alternate[1]*gains[1]};
         }
         if(remaining>0) {
             if(previous!=active){
@@ -139,9 +139,9 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
                 const auto previousOut=(haveAlternate && target==previous)?alternate:
                     engines.process(previous,a,b,old);
                 const float t=1.f-float(remaining)/transition;
-                const float c=std::cos(t*float(skellflang::pi*.5));
-                const float s=std::sin(t*float(skellflang::pi*.5));
-                wet={previousOut[0]*c+wet[0]*s,previousOut[1]*c+wet[1]*s};
+                const auto gains=crossfade.gains(t);
+                wet={previousOut[0]*gains[0]+wet[0]*gains[1],
+                     previousOut[1]*gains[0]+wet[1]*gains[1]};
             }
             --remaining;
         }

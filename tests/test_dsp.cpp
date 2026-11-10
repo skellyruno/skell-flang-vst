@@ -16,6 +16,33 @@ int main(){
     REQUIRE(safeHostOutput(100.f)==16.f);
     REQUIRE(safeHostOutput(std::numeric_limits<float>::infinity())==0.f);
     REQUIRE(safeHostOutput(std::numeric_limits<float>::quiet_NaN())==0.f);
+    // Tap regression across thousands of circular-buffer wraps.
+    Delay tap;tap.prepare(48000,.002);
+    std::array<float,3> recent{};
+    for(int i=0;i<32768;++i) {
+        const float sample=float((i*37)%251)*.003f-.30f;
+        tap.write(sample);
+        if(i>=2)REQUIRE(std::abs(tap.read(3)-recent[size_t((i-2)%3)])<.0001f);
+        recent[size_t(i%3)]=sample;
+    }
+    Controls clock;clock.sync=true;clock.bpm=120.;clock.speed=.6f;
+    const double hz=lfoFrequency(clock);
+    for(int sh=0;sh<5;++sh) {
+        clock.shape=sh;
+        REQUIRE(std::abs(lfoFrequency(clock)-hz)<1.e-12);
+    }
+    clock.speed=.1f;const double slow=lfoFrequency(clock);
+    clock.speed=.95f;REQUIRE(lfoFrequency(clock)>slow*8.);
+    clock.sync=false;clock.speed=.25f;
+    REQUIRE(std::abs(lfoFrequency(clock)-3.02)<1.e-5);
+    EqualPowerBlend blend;blend.prepare();
+    const auto low=blend.gains(0.f),high=blend.gains(1.f);
+    REQUIRE(low[0]==1.f&&low[1]==0.f);
+    REQUIRE(std::abs(high[0])<.00001f&&high[1]==1.f);
+    for(int i=0;i<=1000;++i){
+        const auto gains=blend.gains(float(i)/1000.f);
+        REQUIRE(std::abs(gains[0]*gains[0]+gains[1]*gains[1]-1.f)<.00003f);
+    }
     PitchTracker pitch;pitch.prepare(48000);
     for(int i=0;i<48000;++i)pitch.push(float(std::sin(2*pi*220.*i/48000.)));
     std::cout<<"f0="<<pitch.pitch()<<" confidence="<<pitch.conf()<<"\n";
