@@ -22,7 +22,11 @@ public:
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
     void setCurrentProgram(int) override {}
-    const juce::String getProgramName(int) override { return {}; }
+    // VST3 hosts enumerate program slot 0 even though factory presets live
+    // in the plugin's own browser. A blank name fails Steinberg's validator.
+    const juce::String getProgramName(int index) override {
+        return index==0 ? juce::String("Current") : juce::String();
+    }
     void changeProgramName(int,const juce::String&) override {}
     void getStateInformation(juce::MemoryBlock&) override;
     void setStateInformation(const void*,int) override;
