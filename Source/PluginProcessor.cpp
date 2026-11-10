@@ -57,9 +57,12 @@ void SkellFlangAudioProcessor::prepareToPlay(double sr,int) {
     dryMix.reset(rate,.006);wetMix.reset(rate,.006);outputMix.reset(rate,.006);
     powerMix.reset(rate,.005);morphMix.reset(rate,.025);
     crossMix.reset(rate,.006);
-    dryMix.setCurrentAndTargetValue(.75f);wetMix.setCurrentAndTargetValue(.55f);
-    outputMix.setCurrentAndTargetValue(1.f);powerMix.setCurrentAndTargetValue(1.f);
-    morphMix.setCurrentAndTargetValue(0.f);
+    // Initialise from restored host state: no startup snap from hardcoded gains.
+    dryMix.setCurrentAndTargetValue(curve(raw("dry")));
+    wetMix.setCurrentAndTargetValue(curve(raw("wet")));
+    outputMix.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(raw("output")));
+    powerMix.setCurrentAndTargetValue(raw("power")>.5f?1.f:0.f);
+    morphMix.setCurrentAndTargetValue(std::clamp(raw("morph"),0.f,1.f));
     crossMix.setCurrentAndTargetValue(std::clamp(raw("cross"),0.f,1.f));
     active=std::clamp(int(raw("mode")),0,5);previous=active;remaining=0;
     transition=std::max(1,int(rate*.04));
