@@ -27,6 +27,36 @@ struct Controls {
     double bpm=120.0;
     bool sync=false;
 };
+// Allocation-free, sample-rate-independent automation smoothing.
+// Discrete modes follow the host at block boundaries; DSP values glide per sample.
+class ControlSmoother {
+public:
+    void prepare(double rate) noexcept {
+        coefficient=float(1.-std::exp(-1./(std::max(8000.,rate)*.004)));
+        initialized=false;
+    }
+    Controls next(const Controls& target) noexcept {
+        if(!initialized){state=target;initialized=true;}
+        const auto chase=[this](float& v,float desired) noexcept {
+            v+=(std::isfinite(desired)?desired-v:-v)*coefficient;
+        };
+        chase(state.depth,target.depth); chase(state.speed,target.speed);
+        chase(state.delay,target.delay); chase(state.spread,target.spread);
+        chase(state.cross,target.cross); chase(state.feedback,target.feedback);
+        chase(state.tone,target.tone);
+        for(int i=0;i<4;++i)chase(state.extras[i],target.extras[i]);
+        state.mode=target.mode;state.order=target.order;
+        state.shape=target.shape;state.root=target.root;state.scale=target.scale;
+        state.tuneSource=target.tuneSource;state.sync=target.sync;
+        state.bpm=target.bpm;state.pitch=target.pitch;state.confidence=target.confidence;
+        return state;
+    }
+private:
+    Controls state{};
+    float coefficient=.004f;
+    bool initialized=false;
+};
+
 class Delay {
 public:
     void prepare(double rate, double seconds) {
