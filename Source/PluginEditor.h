@@ -23,6 +23,7 @@ public:
 private:
     void timerCallback() override;
     void updateMode();
+    void updatePage();
     SkellFlangAudioProcessor& processor;
     FlangLookAndFeel skin;
     std::array<juce::Slider,7> faders;
@@ -39,6 +40,8 @@ private:
     juce::ToggleButton power{"POWER"},sync{"SYNC"};
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> powerLink,syncLink;
     juce::TextButton preset{"INIT"}, settings{"SIZE"};
+    std::array<juce::TextButton,3> pages;
+    int page=0;
     int shownMode=-1;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SkellFlangAudioProcessorEditor)
 };
