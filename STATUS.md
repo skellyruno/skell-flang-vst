@@ -1,4 +1,4 @@
-# Status — Skell-Flang v0.3
+# Status — Skell-Flang v0.4
 
 - VST3-only CMake target and GitHub packaging; standalone removed by request.
 - DSP: six prototypes, bounded ring buffers, Hermite fractional reads, feedback saturation; improved mode-specific knob mapping, tuned glide, and shimmer.
@@ -22,3 +22,14 @@
 - New abrupt parameter automation stress and functional sweep-range regression tests.
 - Remaining: true through-zero mode with constant PDC contract, improved formant/vowel models, real host pluginval/FL Studio listening and performance.
 - Pitch tracker now selects a sample-rate-dependent input decimation (about 12 kHz) to retain low-note tracking at 96/192 kHz; regression tests cover 82 Hz and 220 Hz.
+
+## v0.4 realtime and compact UI pass
+- No standalone: Windows VST3-only target maintained.
+- Sample-rate-aware 4 ms per-sample control/macro smoothing, with 5-25 ms mix, power and morph ramps.
+- Pitch follower: one-pole antialiased downsampling and ~10.7 ms hop for faster note decisions, without added host latency.
+- State-derived startup gains prevent load glitches; completely bypassed input preserves samples above 0 dBFS.
+- Live waveform is displayed in chronological order with a ~43 ms window across sample rates.
+- Peak meter decay and CPU load display follow real elapsed audio time, not varying host callback block counts.
+- Dynamic GUI value tooltips, readable realtime footer, stable compact 540 x 338 editor.
+- Synchronized LFO rates avoid per-sample power calculations; multiple older CI builds are canceled when superseded.
+- Remaining: FL Studio realtime stress at 32-128 sample blocks, pluginval, actual measured CPU and audio listening tests.
