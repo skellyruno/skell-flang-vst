@@ -12,7 +12,7 @@ jobs:
   windows-vst3:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Configure
         run: cmake -S . -B build -A x64 -DSKELLFLANG_BUILD_UI_SMOKE=ON
       - name: Build
@@ -43,7 +43,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "UI smoke test failed (exit $LASTEXITCODE)" }
       - name: Save real editor renders for layout inspection
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: Skell-Flang-UI-Renders
           path: build/ui-smoke/*.png
@@ -55,7 +55,7 @@ jobs:
           strictness-level: 5
           args: --timeout-ms 90000
           pluginval-version: v2.0.0-beta3
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: Skell-Flang-Windows-VST3-Only
           path: dist/
@@ -63,7 +63,7 @@ jobs:
   portable-dsp:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Configure DSP tests
         run: cmake -S tests -B build-dsp -DCMAKE_BUILD_TYPE=Release
       - name: Build DSP tests
@@ -75,7 +75,7 @@ jobs:
   portable-dsp-sanitized:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Configure address and undefined behavior sanitizers
         run: cmake -S tests -B build-san -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
       - name: Build sanitized tests

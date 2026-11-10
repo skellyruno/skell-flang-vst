@@ -1,4 +1,4 @@
-# Status — Skell-Flang v0.5
+# Status — Skell-Flang v0.6
 
 - VST3-only CMake target and GitHub packaging; standalone removed by request.
 - DSP: six prototypes, bounded ring buffers, Hermite fractional reads, feedback saturation; improved mode-specific knob mapping, tuned glide, and shimmer.
@@ -45,3 +45,14 @@
 - Portable regression tests include output headroom/non-finite guards and tuning-cache invalidation.
 - Pending: pluginval, FL Studio actual load and host-boundary automation testing, latency contract for any future true through-zero mode, CPU profiling with full 8-voice morph and grains.
 
+
+## v0.6 hardening
+- Independent tempo-sync SPEED vs waveform SHAPE controls, with portable tests.
+- Fractional delay circular indexing no longer uses integer modulo, with 32k+ wraparound reference test.
+- Equal-power 257-point morph/mode LUT, tested for endpoints and near-unity power.
+- Anti-phase Orbit stereo signal no longer collapses to silence; dedicated regression.
+- Non-empty host program slot fixes Steinberg VST3 validator rejection.
+- VST3 GUI host check via pluginval, plus Windows JUCE render/layout/parameter smoke tests for 540/720/900/1080 widths.
+- Real 8-voice and simultaneous 8+8-voice morphing performance benchmark (non-gating measured CPU).
+- Compiler warning cleanup, portable tests build with -Werror, Node24 GitHub actions.
+- Remaining: measured FL Studio experience, real-world listening, true through-zero, 24-hour automation stress and low-spec Windows profiling.

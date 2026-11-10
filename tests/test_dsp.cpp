@@ -166,6 +166,24 @@ int main(){
         REQUIRE(detected>=0 && detected<9600); // update in under 200 ms
         REQUIRE(tracker.pitch()>405.f && tracker.pitch()<475.f);
     }
+    // Orbit must preserve anti-phase stereo; unconditional mono summing would
+    // cancel this input completely and produce an inaudible "spatial" effect.
+    {
+        EngineBank orbit;
+        orbit.prepare(48000);
+        Controls setting;
+        setting.order=8;
+        setting.depth=.8f;
+        setting.feedback=.2f;
+        double energy=0.;
+        for(int i=0;i<48000;++i) {
+            const float sample=float(.3*std::sin(2*pi*220.*i/48000.));
+            const auto y=orbit.process(4,sample,-sample,setting);
+            REQUIRE(std::isfinite(y[0])&&std::isfinite(y[1]));
+            energy+=double(y[0])*y[0]+double(y[1])*y[1];
+        }
+        REQUIRE(energy>1.);
+    }
     // Cache invalidation: changing the KEY root during playback must retune
     // the resonators immediately, without reallocating the eight comb voices.
     {

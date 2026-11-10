@@ -199,9 +199,14 @@ class EngineBank {
         bool lagReady[2]{};
         void prepare(double sr) {
             for(auto& d:delay)d.prepare(sr,.08);
-            for(float& x:low)x=0;for(float& x:dcx)x=0;
-            for(float& x:dcy)x=0;for(float& x:air)x=0;
-            for(auto& x:lag)x=0;for(auto& x:fb)x=0;lagReady[0]=lagReady[1]=false;
+            for(auto& x:low)x=0;
+            for(auto& x:dcx)x=0;
+            for(auto& x:dcy)x=0;
+            for(auto& x:air)x=0;
+            for(auto& x:lag)x=0;
+            for(auto& x:fb)x=0;
+            lagReady[0]=false;
+            lagReady[1]=false;
             lagAlpha=1.-std::exp(-1./(std::max(8000.,sr)*.0035));
             fbAlpha=float(1.-std::exp(-1./(std::max(8000.,sr)*.008)));
         }
@@ -358,8 +363,10 @@ public:
                 const float radius=.25f+.75f*bound(p.extras[0]);
                 const double d=sr*.001*(3.+6.*radius);
                 const double itd=sr*.001*(.2+.9*bound(p.cross))*radius*x;
-                const float a=v.tap(0,(l+r)*.5f,d+itd,p)*(1-.45f*x);
-                const float b=v.tap(1,(l+r)*.5f,d-itd,p)*(1+.45f*x);
+                // Keep each source channel independent. Summing L+R before
+                // orbiting erased anti-phase stereo and could go completely silent.
+                const float a=v.tap(0,l,d+itd,p)*(1-.45f*x);
+                const float b=v.tap(1,r,d-itd,p)*(1+.45f*x);
                 const float coeff=.15f+.7f*(1-bound(p.extras[2])*.6f);
                 v.air[0]+=coeff*(a-v.air[0]);v.air[1]+=coeff*(b-v.air[1]);
                 outL+=v.air[0]*(.9f+.1f*y);outR+=v.air[1]*(.9f+.1f*y);

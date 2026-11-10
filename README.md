@@ -44,6 +44,16 @@ GitHub Actions **Build Skell-Flang Windows VST3 Only** builds and packages only 
 - **Compact UI:** unified power and host-sync buttons, shorter panel titles, responsive mode and preset selections, actual dark popup-menu styling, and saved host-dragged window width.
 - **Tests:** added above-0 dBFS headroom and mid-stream tuned-key-change checks. The new builds must still be validated in FL Studio, including mode changes, overs and dense morphs, before commercial release.
 
+## v0.6 validation and stereo fixes
+
+- **Synced modulation:** the SPEED fader selects tempo subdivisions independently of the selected sine/triangle/saw/square LFO waveform. This fixes a coupling where selecting an LFO shape unexpectedly changed its speed.
+- **Real-time paths:** interpolated delay taps avoid integer division on every sample, and 257-point equal-power lookup gains remove repeated audio-thread trigonometry when morphing or switching modes.
+- **ORBIT stereo:** both channels now retain their own signal rather than being summed to mono before processing. This prevents phase-opposed stereo signals from cancelling into silence.
+- **Host VST3 compatibility:** the default program slot has a non-empty name for Steinberg's validator. The factory preset browser remains independent of the single host program.
+- **Continuous integration:** a portable eight-voice/morph DSP performance benchmark reports single-core-equivalent timings; Windows additionally runs a real JUCE editor/render/layout smoke check at four sizes and Tracktion pluginval host compatibility tests. CI-only test executables are never included in the Windows VST3 artifact.
+- **Compiler hygiene:** GCC/Clang portable test targets treat warnings as errors; GitHub Actions checkout/artifact steps use Node 24-compatible versions.
+- **Still required for commercial release:** FL Studio loading/listening and real CPU/latency measurements on multiple Windows machines, long automation stress, and independent true through-zero DSP design.
+
 ## DSP behavior and limitations
 
 The delay-line Hermite interpolation and feedback filtering are bounded and allocated in `prepareToPlay`. Modulated voice delay times now use a 3.5 ms slew filter and feedback automation uses an independent 8 ms filter, calculated per sample without heap allocation. Host PDC is fixed at **0 samples**, avoiding an artificial misalignment of the dry and wet flanging signals. The reverse-grain effect has natural creative time offset but no extra host-declared delay.

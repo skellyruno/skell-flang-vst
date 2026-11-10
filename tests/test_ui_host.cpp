@@ -26,6 +26,9 @@ int main() {
         processor.prepareToPlay(48000.,64);
         std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
         verify(editor!=nullptr,"Editor was not created");
+        // Headless JUCE components start hidden. They must be visible before
+        // paintEntireComponent can draw their child-control hierarchy.
+        editor->setVisible(true);
         verify(editor->getWidth()==540,"Compact default width changed unexpectedly");
         auto* flanger=findButton(*editor,"FLANGER");
         verify(flanger!=nullptr,"Flanger mode tab missing");
