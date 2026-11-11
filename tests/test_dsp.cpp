@@ -16,6 +16,33 @@ int main(){
     REQUIRE(safeHostOutput(100.f)==16.f);
     REQUIRE(safeHostOutput(std::numeric_limits<float>::infinity())==0.f);
     REQUIRE(safeHostOutput(std::numeric_limits<float>::quiet_NaN())==0.f);
+    // Refreshed wet path is linear for ordinary signals; peak protection is
+    // finite, continuous and bounded. Previous tanh coloured all input audio.
+    for(const float x:{-.9f,-.65f,-.25f,0.f,.25f,.65f,.9f})
+        REQUIRE(transparentWet(x)==x);
+    for(const float x:{-100.f,-1.5f,-1.f,1.f,1.5f,100.f}) {
+        const float y=transparentWet(x);
+        REQUIRE(std::isfinite(y));
+        REQUIRE(std::abs(y)<=1.001f);
+        REQUIRE((x<0)==(y<0));
+    }
+    REQUIRE(transparentWet(std::numeric_limits<float>::quiet_NaN())==0.f);
+    REQUIRE(transparentWet(std::numeric_limits<float>::infinity())==0.f);
+    REQUIRE(std::abs(transparentWet(.9001f)-.9001f)<1.e-6f);
+    // Imported smoothstep ping-pong technique: continuous turning points,
+    // period one, same triangle endpoints and a valid -1 to +1 range.
+    REQUIRE(std::abs(smoothTriangle(0.f)+1.f)<1.e-6f);
+    REQUIRE(std::abs(smoothTriangle(.25f))<1.e-6f);
+    REQUIRE(std::abs(smoothTriangle(.5f)-1.f)<1.e-6f);
+    REQUIRE(std::abs(smoothTriangle(.75f))<1.e-6f);
+    REQUIRE(std::abs(smoothTriangle(1.f)+1.f)<1.e-6f);
+    REQUIRE(std::abs(smoothTriangle(.5001f)-smoothTriangle(.4999f))<1.e-5f);
+    REQUIRE(std::abs(smoothTriangle(.0001f)-smoothTriangle(.9999f))<1.e-5f);
+    for(int i=0;i<=2048;++i) {
+        const float q=float(i)/2048.f;
+        REQUIRE(std::isfinite(smoothTriangle(q)));
+        REQUIRE(std::abs(smoothTriangle(q))<=1.00001f);
+    }
     // Tap regression across thousands of circular-buffer wraps.
     Delay tap;tap.prepare(48000,.002);
     std::array<float,3> recent{};

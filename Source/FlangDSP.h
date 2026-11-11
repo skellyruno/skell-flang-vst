@@ -11,6 +11,25 @@ constexpr double pi = 3.14159265358979323846;
 inline float saturate(float x) noexcept {
     return std::isfinite(x) ? std::tanh(std::clamp(x, -8.f, 8.f)) : 0.f;
 }
+// Preserve transparent floating-point wet samples below -0.92 dBFS.
+// Above this threshold, a continuously differentiable safety knee catches
+// unexpected peaks without the ever-present tanh coloration of quiet audio.
+inline float transparentWet(float x) noexcept {
+    if(!std::isfinite(x))return 0.f;
+    const float magnitude=std::abs(x);
+    if(magnitude<=.90f)return x;
+    const float curved=.90f+.10f*(1.f-std::exp(-10.f*(magnitude-.90f)));
+    return std::copysign(curved,x);
+}
+// User-owned source's smoothstep ping-pong idea, adapted as a band-smoother
+// triangle LFO: the endpoints and half-cycle retain triangle timing, but its
+// derivatives are zero at phase reversals to avoid audible corners.
+inline float smoothTriangle(float phase) noexcept {
+    if(!std::isfinite(phase))return -1.f;
+    const float q=phase-std::floor(phase);
+    const float t=q<=.5f?2.f*q:2.f*(1.f-q);
+    return 2.f*t*t*(3.f-2.f*t)-1.f;
+}
 // Float DAW signal paths must retain headroom > 0 dBFS. Clamp only
 // pathological runaway values; never impose a 0 dBFS brickwall on the mix.
 inline float safeHostOutput(float x) noexcept {
@@ -210,7 +229,8 @@ class EngineBank {
             lagAlpha=1.-std::exp(-1./(std::max(8000.,sr)*.0035));
             fbAlpha=float(1.-std::exp(-1./(std::max(8000.,sr)*.008)));
         }
-        float tap(int ch,float input,double delaySamples,const Controls& p) noexcept {
+        float tap(int ch,float input,double delaySamples,const Controls& p,
+                  bool transparentInput=false) noexcept {
             // 3.5 ms one-pole slew prevents fractional-delay zippering on
             // sudden automation while preserving normal chorus/flanger motion.
             const double goal=std::isfinite(delaySamples)?std::max(3.,delaySamples):3.;
@@ -222,7 +242,14 @@ class EngineBank {
             low[ch]+=(.035f+.86f*bound(p.tone))*(hp-low[ch]);
             // Feedback automation is independent of tap-time smoothing.
             fb[ch]+=(bound(p.feedback,-.9f,.9f)-fb[ch])*fbAlpha;
-            delay[ch].write(saturate(input+low[ch]*fb[ch]));
+            // The old chorus/flanger path tanh-processed the whole input on
+            // every pass, producing audible harmonics even with feedback=0.
+            // Saturate only recirculated feedback for the refreshed engines.
+            // Keep the legacy path exact for Orbit and restored older modes.
+            const float send=transparentInput
+                ? input+saturate(low[ch]*fb[ch])
+                : saturate(input+low[ch]*fb[ch]);
+            delay[ch].write(send);
             return d;
         }
     };
@@ -253,7 +280,7 @@ public:
         auto mod=[&](double offset) {
             const double q=cycle+offset-std::floor(cycle+offset);
             switch(p.shape) {
-                case 1:return float(1.-4.*std::abs(q-.5));
+                case 1:return smoothTriangle(float(q));
                 case 2:return float(2.*q-1.);
                 case 3:return float(1.-2.*q);
                 case 4:return float(std::tanh(10*std::sin(2*pi*q)));
@@ -346,7 +373,7 @@ public:
                 const double spreadMs=1.8*bound(p.spread)*location;
                 const double dL=sr*.001*(baseMs+depthMs*leftWave+spreadMs);
                 const double dR=sr*.001*(baseMs+depthMs*rightWave-spreadMs);
-                const float dl=v.tap(0,l,dL,p),dr=v.tap(1,r,dR,p);
+                const float dl=v.tap(0,l,dL,p,true),dr=v.tap(1,r,dR,p,true);
                 const float smoothing=.30f+.60f*(1.f-bound(p.extras[2]));
                 v.air[0]+=smoothing*(dl-v.air[0]);
                 v.air[1]+=smoothing*(dr-v.air[1]);
@@ -366,8 +393,8 @@ public:
                 const double dR=sr*.001*(baseMs+.5f*sweepMs*(1.f+b)+follow);
                 Controls coloured=p;
                 coloured.tone=bound(p.tone+(p.extras[1]-.5f)*.40f);
-                outL+=v.tap(0,l,dL,coloured);
-                outR+=v.tap(1,r,dR,coloured);
+                outL+=v.tap(0,l,dL,coloured,true);
+                outR+=v.tap(1,r,dR,coloured,true);
             } else if(mode==6) { // FLANGUS: two motion rates over an ensemble of comb delays
                 const float location=n>1 ? float(i)/float(n-1) : .5f;
                 const double offset=double(i)*bound(p.spread)/std::max(1,n);
@@ -380,8 +407,8 @@ public:
                 const double jet=(.2+2.2*bound(p.extras[2]))*bound(p.depth);
                 Controls coloured=p;
                 coloured.tone=bound(p.tone+.24f*(bound(p.extras[3])-.5f));
-                outL+=v.tap(0,l,sr*.001*(base+travel*slowL+jet*fastL),coloured);
-                outR+=v.tap(1,r,sr*.001*(base+travel*slowR+jet*fastR),coloured);
+                outL+=v.tap(0,l,sr*.001*(base+travel*slowL+jet*fastL),coloured,true);
+                outR+=v.tap(1,r,sr*.001*(base+travel*slowR+jet*fastR),coloured,true);
             } else if(mode==7) { // DIMENSION: slow short-delay stereo doubling
                 const float location=n>1 ? float(i)/float(n-1) : .5f;
                 const double offset=double(i)/double(n);
@@ -390,8 +417,8 @@ public:
                 const double base=11.+18.*bound(p.delay);
                 const double motion=(.18+1.8*bound(p.depth))*(.6+.4*bound(p.extras[0]));
                 const double separation=5.*bound(p.spread)*location*bound(p.extras[1]);
-                const float dl=v.tap(0,l,sr*.001*(base+motion*waveL+separation),p);
-                const float dr=v.tap(1,r,sr*.001*(base+motion*waveR-separation),p);
+                const float dl=v.tap(0,l,sr*.001*(base+motion*waveL+separation),p,true);
+                const float dr=v.tap(1,r,sr*.001*(base+motion*waveR-separation),p,true);
                 const float tone=.12f+.75f*bound(p.extras[2]);
                 v.air[0]+=tone*(dl-v.air[0]);
                 v.air[1]+=tone*(dr-v.air[1]);
@@ -413,7 +440,11 @@ public:
                 outL+=v.air[0]*(.9f+.1f*y);outR+=v.air[1]*(.9f+.1f*y);
             }
         }
-        return {saturate(outL/n),saturate(outR/n)};
+        // Only the four current non-Orbit delay modes use the cleaner knee.
+        // Orbit's previously approved sound and old saved modes stay unchanged.
+        return mode==4
+            ? std::array<float,2>{saturate(outL/n),saturate(outR/n)}
+            : std::array<float,2>{transparentWet(outL/n),transparentWet(outR/n)};
     }
 private:
     unsigned random() noexcept{rng^=rng<<13;rng^=rng>>17;rng^=rng<<5;return rng;}
