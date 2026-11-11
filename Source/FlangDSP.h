@@ -332,7 +332,6 @@ public:
             return {saturate(outL/n),saturate(outR/n)};
         }
         for(int i=0;i<n;++i) {
-            const float m=mod(double(i)/n*bound(p.spread));
             auto& v=voices[size_t(mode)][size_t(i)];
             if(mode==0) { // CHORUS: decorrelated dual-channel multi-voice detuning
                 const float location=n>1 ? float(i)*2.f/float(n-1)-1.f : 0.f;
