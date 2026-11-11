@@ -82,3 +82,14 @@ The Windows CI now parses and normalizes the JUCE-generated `moduleinfo.json` (i
 ## v0.7 verification notes
 
 The shared SkellCore renderer generates 40 real-editor screenshot scenes (5 effect modes × 2 drawer states × 4 editor sizes), checks visibility and bounds, and verifies mode and preset interactions. Portable DSP tests exercise all eight internal engine indices (five current plus three compatibility modes) across sustained signals and stress paths. The Windows workflow compiles only an x64 VST3 and performs pluginval. A successful CI build confirms structural behavior, **not** subjective mixing quality: FL Studio listening, preset comparisons, low-end machine CPU tests and 24-hour automation stress remain to do.
+
+## v0.8 — polished rack layout and distinct mode identities
+
+- Removed the MOD drawer, MOD button, and obsolete `uiPage` view switching from the editor. The seven tone knobs are always visible. Morph destination, morph slider, LFO waveform and host sync live together in a permanent, compact lower-row panel.
+- The previous text-only **L** / **R** bars have been replaced with a Skell Key-inspired **segmented audio level strip in the top header**. Actual signal peak drives the strip; UI-thread fast-attack/slow-release smoothing prevents flicker. The existing waveform scope remains in the right monitor.
+- Selected modes now have distinctive but restrained accent identities across tabs, slider fills, knobs, menu highlights and activity strip: **Chorus seafoam**, **Flanger cyan**, **Flangus lime**, **Orbit periwinkle**, **Dimension warm gold**. Skull clicks adjust accent treatment without erasing mode identity.
+- The top button bevels/frames were refined. Preset button shows an explicit dropdown chevron. Both JUCE popup menus use darker layered styling with custom headers/hover/tick drawing, smaller fonts, and **ASCII-only captions** to eliminate `Â` mojibake on Windows.
+- Main deck is vertically compressed slightly to make room for the permanent modulation row without changing the 540 x 338 default window or the supported 720/900/1080 presets.
+- Chorus **ENSEMBLE** macro now genuinely affects a slower secondary detune motion (previously a displayed but inert control); Flangus imposes a 1.2 ms minimum stereo delay at aggressive jet settings to avoid near-zero comb spikes. Orbit's DSP was not edited.
+- Existing host parameter IDs and legacy effect indices remain compatible. The current screenshot renderer covers 5 modes, 2 morph states and 4 editor widths (40 real JUCE scenes); layout tests reject intersecting interactive hit areas.
+- Actual listening in FL Studio is still required for subjective tonal acceptance; automatic tests cannot prove aesthetic sound quality.

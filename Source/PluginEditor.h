@@ -33,7 +33,7 @@ public:
 private:
     void timerCallback() override;
     void updateMode();
-    void updatePage();
+
     SkellFlangAudioProcessor& processor;
     FlangLookAndFeel skin;
     std::array<juce::Slider,7> faders;
@@ -45,12 +45,12 @@ private:
     std::array<juce::Label,7> knobLabels;
     std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>,7> knobLinks;
     std::array<juce::TextButton,5> tabs;
-    juce::ComboBox target,shape,root,scale,tuneSource;
-    std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>,5> comboLinks;
+    juce::ComboBox target,shape;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> shapeLink;
     juce::TextButton power{"ACTIVE"},sync{"SYNC"};
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> powerLink,syncLink;
-    juce::TextButton preset{"INIT"}, settings{""}, skull{""}, mod{"MOD"};
-    bool modulationOpen=false;
+    juce::TextButton preset{"INIT"}, settings{""}, skull{""};
+    float headerLevel=0.f;
     int theme=0;
     int shownMode=-1;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SkellFlangAudioProcessorEditor)

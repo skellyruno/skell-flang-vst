@@ -371,8 +371,13 @@ public:
                 const double baseMs=9.+15.*bound(p.delay);
                 const double depthMs=(.5+3.2*bound(p.depth))*(.60+.40*bound(p.extras[0]));
                 const double spreadMs=1.8*bound(p.spread)*location;
-                const double dL=sr*.001*(baseMs+depthMs*leftWave+spreadMs);
-                const double dR=sr*.001*(baseMs+depthMs*rightWave-spreadMs);
+                // ENSEMBLE was displayed as a macro but did not affect this
+                // revised chorus engine. A slow secondary wave now provides
+                // subtle staggered movement without changing the main detune.
+                const double ensemble=.65*bound(p.extras[3])*
+                    std::sin(2*pi*(cycle*.41+double(i)/std::max(1,n)));
+                const double dL=sr*.001*(baseMs+depthMs*leftWave+spreadMs+ensemble);
+                const double dR=sr*.001*(baseMs+depthMs*rightWave-spreadMs-ensemble);
                 const float dl=v.tap(0,l,dL,p,true),dr=v.tap(1,r,dR,p,true);
                 const float smoothing=.30f+.60f*(1.f-bound(p.extras[2]));
                 v.air[0]+=smoothing*(dl-v.air[0]);
@@ -407,8 +412,12 @@ public:
                 const double jet=(.2+2.2*bound(p.extras[2]))*bound(p.depth);
                 Controls coloured=p;
                 coloured.tone=bound(p.tone+.24f*(bound(p.extras[3])-.5f));
-                outL+=v.tap(0,l,sr*.001*(base+travel*slowL+jet*fastL),coloured,true);
-                outR+=v.tap(1,r,sr*.001*(base+travel*slowR+jet*fastR),coloured,true);
+                // Keep the hybrid from collapsing into an almost-zero delay
+                // on depth/jet extremes; avoids abrupt, brittle comb spikes.
+                const double dl=std::max(1.2,base+travel*slowL+jet*fastL);
+                const double dr=std::max(1.2,base+travel*slowR+jet*fastR);
+                outL+=v.tap(0,l,sr*.001*dl,coloured,true);
+                outR+=v.tap(1,r,sr*.001*dr,coloured,true);
             } else if(mode==7) { // DIMENSION: slow short-delay stereo doubling
                 const float location=n>1 ? float(i)/float(n-1) : .5f;
                 const double offset=double(i)/double(n);

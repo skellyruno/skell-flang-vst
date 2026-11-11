@@ -79,3 +79,13 @@
 - Added clickable vector skull theme cycling, gear menu for sizes and effect enable, and custom themed grouped preset popup.
 - Shared renderer expanded to 40 scene captures across all current modes, drawers and sizes.
 - Portable DSP, sanitizers, and Windows VST3 must be verified in current CI; actual FL Studio listening and long host-automation stress remain open.
+
+## v0.8 — November 2026
+
+- Removed MOD drawer and its top button; integrated target/morph/wave/sync controls permanently below tone knobs.
+- Replaced signal panel L/R bars with a Skell Key-derived 52-segment live header meter, using real peak readings and UI-thread smoothing.
+- Mode-specific identity palette, consistent selected tab feedback, smoother button surfaces, branded dropdown treatment.
+- Fixed Windows menu text mojibake by using ASCII punctuation in all popup captions; tightened custom popup styling and sizes.
+- Chorus ENSEMBLE control now drives an independent slow motion; Flangus comb delay floors at 1.2 ms.
+- Preserved Orbit DSP, existing preset and parameter IDs, default window size, zero PDC and Windows VST3-only packaging.
+- Run real editor render, sanitizer, portable DSP, and pluginval in CI; test listening in FL Studio before release.

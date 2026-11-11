@@ -93,7 +93,7 @@ int main(){
         EngineBank bank;bank.prepare(sr);
         Controls p;p.order=8;p.feedback=-.9f;p.extras[0]=.95f;p.extras[1]=.98f;p.extras[3]=1.f;
         p.pitch=220;p.confidence=.99f;p.tuneSource=0;p.scale=0;
-        for(int m=0;m<6;++m) {
+        for(int m=0;m<8;++m) {
             double peak=0;
             for(int i=0;i<8192;++i) {
                 const float x=i<64?1.f:float(.2*std::sin(2*pi*220*i/sr));
@@ -133,6 +133,30 @@ int main(){
         }
         REQUIRE(difference>.01);
     }
+    // CHORUS ENSEMBLE is no longer a dead macro. Different settings must
+    // produce a measurable stereo variation without level explosions.
+    {
+        EngineBank sparse,lush;
+        sparse.prepare(48000);lush.prepare(48000);
+        Controls a,b;
+        a.order=b.order=5;
+        a.depth=b.depth=.65f;
+        a.speed=b.speed=.41f;
+        a.delay=b.delay=.48f;
+        a.spread=b.spread=.78f;
+        a.extras[3]=0.f;b.extras[3]=1.f;
+        double difference=0.;
+        for(int i=0;i<48000;++i){
+            const float sample=float(.23*std::sin(2*pi*220.*i/48000.));
+            const auto dry=sparse.process(0,sample,-sample,a);
+            const auto wet=lush.process(0,sample,-sample,b);
+            REQUIRE(std::isfinite(dry[0])&&std::isfinite(dry[1]));
+            REQUIRE(std::isfinite(wet[0])&&std::isfinite(wet[1]));
+            difference+=std::abs(dry[0]-wet[0])+std::abs(dry[1]-wet[1]);
+        }
+        REQUIRE(difference>.02);
+    }
+
     // SWEEP RANGE must audibly (numerically) change the resulting flanger.
     {
         EngineBank narrow,wide;narrow.prepare(48000);wide.prepare(48000);

@@ -52,20 +52,23 @@ int main(){
             verify(findButton(*editor,old)==nullptr,"Removed mode visible in selector");
         auto* skull=byID(*editor,"skull");
         auto* cog=byID(*editor,"settings");
-        auto* mod=byID(*editor,"mod");
         auto* preset=byID(*editor,"preset");
-        verify(skull&&cog&&mod&&preset,"Missing skull, gear, mod or preset control");
-        verify(bool(skull->onClick)&&bool(cog->onClick)&&bool(mod->onClick)&&bool(preset->onClick),
+        verify(skull&&cog&&preset,"Missing skull, gear or preset control");
+        verify(bool(skull->onClick)&&bool(cog->onClick)&&bool(preset->onClick),
                "An interactive header control has no callback");
+        verify(byID(*editor,"mod")==nullptr && findButton(*editor,"MOD")==nullptr &&
+               findButton(*editor,"BACK")==nullptr,
+               "Obsolete MOD drawer button is still present");
 
         auto* morph=dynamic_cast<juce::Slider*>(editor->findChildWithID("morph"));
-        verify(morph!=nullptr && !morph->isVisible(),
-               "Modulation should not cover the tone controls by default");
-        click(mod,"MOD drawer cannot open");
-        verify(morph->isVisible(),"MOD drawer did not show MORPH");
-        verify(findButton(*editor,"BACK")!=nullptr,"MOD drawer missing close control");
-        click(mod,"MOD drawer cannot close");
-        verify(!morph->isVisible(),"MOD drawer did not close");
+        auto* dest=dynamic_cast<juce::ComboBox*>(editor->findChildWithID("morph-target"));
+        auto* wave=dynamic_cast<juce::ComboBox*>(editor->findChildWithID("lfo-wave"));
+        auto* sync=byID(*editor,"lfo-sync");
+        verify(morph&&dest&&wave&&sync,"Missing permanently integrated morph/LFO controls");
+        verify(morph->isVisible()&&dest->isVisible()&&wave->isVisible()&&sync->isVisible(),
+               "Morph and LFO controls must always be visible");
+        click(skull,"Skull theme cycle is not clickable");
+        verify(morph->isVisible(),"Skull theme change hid morph controls");
 
         // A factory preset must update the engine AND the character controls.
         processor.applyFactoryPreset(7);
@@ -78,21 +81,21 @@ int main(){
         verify(processor.getLatencySamples()==0,"Unexpected host delay compensation");
 
         // Shared SkellCore captures the ACTUAL editor child tree at every
-        // supported size, across all five modes, with and without the MOD drawer.
+        // supported size, across all five modes, with both dry and morphed settings.
         skellcore::ui::headless::Options options;
-        options.project="Skell-Flang v0.7 actual JUCE AudioProcessorEditor";
+        options.project="Skell-Flang v0.8 real JUCE AudioProcessorEditor";
         options.minimumColours=12;
         for(const int width:std::array<int,4>{540,720,900,1080})
             for(size_t mode=0;mode<choices.size();++mode)
-                for(int drawer=0;drawer<2;++drawer) {
+                for(int morphed=0;morphed<2;++morphed) {
                     skellcore::ui::headless::Scene scene;
                     scene.id="Skell-Flang-"+juce::String(width)+"-"+
                               juce::String(names[mode]).toLowerCase()+
-                              (drawer?"-mod":"-tone");
+                              (morphed?"-morphed":"-unmorphed");
                     scene.width=width;
                     scene.height=juce::roundToInt(double(width)*450./720.);
                     scene.mode=choices[mode];
-                    scene.browser=drawer!=0;
+                    scene.browser=morphed!=0;
                     options.scenes.push_back(scene);
                 }
         options.configure=[&](const auto& scene) {
@@ -102,9 +105,9 @@ int main(){
             click(tab,"Mode screenshot selector could not be clicked");
             verify(int(processor.parameters.getRawParameterValue("mode")->load())==scene.mode,
                    "Wrong mode in screenshot");
-            const bool drawerOpen=mod->getButtonText()=="BACK";
-            if(drawerOpen!=scene.browser)click(mod,"MOD drawer scene toggle failed");
-            verify(morph->isVisible()==scene.browser,"MOD drawer scene visibility incorrect");
+            morph->setValue(scene.browser?.76:0.0,juce::sendNotificationSync);
+            verify(morph->isVisible()&&dest->isVisible()&&wave->isVisible()&&sync->isVisible(),
+                   "Controls hidden after mode or morph change");
         };
         options.inspect=[&]{
             juce::StringArray errors;
@@ -120,12 +123,30 @@ int main(){
                 ++count;
             }
             if(count<25)errors.add("Too few visible controls");
+            // All interactive controls must have independent, non-overlapping
+            // mouse hit areas, even at the compact 540 px editor width.
+            for(int i=0;i<editor->getNumChildComponents();++i) {
+                auto* a=editor->getChildComponent(i);
+                if(!a||!a->isVisible()||
+                    !(dynamic_cast<juce::Slider*>(a)||
+                      dynamic_cast<juce::ComboBox*>(a)||
+                      dynamic_cast<juce::TextButton*>(a)))continue;
+                for(int j=i+1;j<editor->getNumChildComponents();++j) {
+                    auto* b=editor->getChildComponent(j);
+                    if(!b||!b->isVisible()||
+                        !(dynamic_cast<juce::Slider*>(b)||
+                          dynamic_cast<juce::ComboBox*>(b)||
+                          dynamic_cast<juce::TextButton*>(b)))continue;
+                    if(a->getBounds().intersects(b->getBounds()))
+                        errors.add("Overlapping controls: "+a->getComponentID()+" / "+b->getComponentID());
+                }
+            }
             return errors;
         };
         options.mustDiffer={
-            {"Skell-Flang-540-chorus-tone","Skell-Flang-540-chorus-mod"},
-            {"Skell-Flang-540-flanger-tone","Skell-Flang-540-flangus-tone"},
-            {"Skell-Flang-540-orbit-tone","Skell-Flang-540-dimension-tone"}
+            {"Skell-Flang-540-chorus-unmorphed","Skell-Flang-540-chorus-morphed"},
+            {"Skell-Flang-540-flanger-unmorphed","Skell-Flang-540-flangus-unmorphed"},
+            {"Skell-Flang-540-orbit-unmorphed","Skell-Flang-540-dimension-unmorphed"}
         };
         juce::Image probe(juce::Image::ARGB,8,8,true);
         {juce::Graphics g(probe);g.fillAll(juce::Colours::red);}
@@ -161,7 +182,7 @@ int main(){
         processor.releaseResources();
         return 0;
     }catch(const std::exception& e){
-        std::cerr<<"Skell-Flang v0.7 UI test failed: "<<e.what()<<"\n";
+        std::cerr<<"Skell-Flang v0.8 UI test failed: "<<e.what()<<"\n";
         return 1;
     }
 }
