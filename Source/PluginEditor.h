@@ -14,6 +14,14 @@ public:
                               bool,bool) override;
     juce::Font getTextButtonFont(juce::TextButton&,int buttonHeight) override;
     juce::Font getComboBoxFont(juce::ComboBox&) override;
+    juce::Font getPopupMenuFont() override;
+    void drawPopupMenuBackground(juce::Graphics&,int,int) override;
+    void drawPopupMenuSectionHeader(juce::Graphics&,const juce::Rectangle<int>&,
+                                    const juce::String&) override;
+    void drawPopupMenuItem(juce::Graphics&,const juce::Rectangle<int>&,
+        bool,bool,bool,bool,bool,const juce::String&,const juce::String&,
+        const juce::Drawable*,const juce::Colour*) override;
+    void getIdealPopupMenuItemSize(const juce::String&,bool,int,int&,int&) override;
 };
 class SkellFlangAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                               private juce::Timer {
@@ -36,14 +44,14 @@ private:
     std::array<juce::Slider,7> knobs;
     std::array<juce::Label,7> knobLabels;
     std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>,7> knobLinks;
-    std::array<juce::TextButton,6> tabs;
+    std::array<juce::TextButton,5> tabs;
     juce::ComboBox target,shape,root,scale,tuneSource;
     std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>,5> comboLinks;
     juce::TextButton power{"ACTIVE"},sync{"SYNC"};
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> powerLink,syncLink;
-    juce::TextButton preset{"INIT"}, settings{"SIZE"};
-    std::array<juce::TextButton,3> pages;
-    int page=0;
+    juce::TextButton preset{"INIT"}, settings{""}, skull{""}, mod{"MOD"};
+    bool modulationOpen=false;
+    int theme=0;
     int shownMode=-1;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SkellFlangAudioProcessorEditor)
 };

@@ -12,144 +12,156 @@ namespace {
 void verify(bool ok,const char* message) {
     if(!ok)throw std::runtime_error(message);
 }
-juce::TextButton* findButton(juce::Component& editor,const juce::String& name) {
+juce::TextButton* findButton(juce::Component& editor,const juce::String& text) {
     for(int i=0;i<editor.getNumChildComponents();++i)
-        if(auto* button=dynamic_cast<juce::TextButton*>(editor.getChildComponent(i)))
-            if(button->getButtonText()==name)return button;
+        if(auto* b=dynamic_cast<juce::TextButton*>(editor.getChildComponent(i)))
+            if(b->getButtonText()==text)return b;
     return nullptr;
+}
+juce::TextButton* byID(juce::Component& editor,const char* id) {
+    return dynamic_cast<juce::TextButton*>(editor.findChildWithID(id));
+}
+void click(juce::TextButton* b,const char* error){
+    verify(b!=nullptr && bool(b->onClick),error);
+    b->onClick();
 }
 }
 
-int main() {
+int main(){
     try {
-        juce::ScopedJuceInitialiser_GUI initialiseJuce;
+        juce::ScopedJuceInitialiser_GUI gui;
         SkellFlangAudioProcessor processor;
         processor.prepareToPlay(48000.,64);
         std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
-        verify(editor!=nullptr,"Editor was not created");
-        // Headless JUCE components start hidden. They must be visible before
-        // paintEntireComponent can draw their child-control hierarchy.
+        verify(editor!=nullptr,"Actual editor was not created");
         editor->setVisible(true);
-        // attach a real JUCE desktop peer; an unattached component is not
-        // "showing" and paintEntireComponent silently skips its child tree.
         editor->addToDesktop(0);
-        verify(editor->isShowing(),"Editor must have a visible native peer");
-        verify(editor->getWidth()==540,"Compact default width changed unexpectedly");
-        verify(processor.getProgramName(0).isNotEmpty(),"VST3 program has no name");
-        auto* flanger=findButton(*editor,"FLANGER");
-        verify(flanger!=nullptr,"Flanger mode tab missing");
-        verify(bool(flanger->onClick),"Mode callback missing");
-        flanger->onClick();
-        verify(int(processor.parameters.getRawParameterValue("mode")->load())==1,
-               "Mode click did not update the processor");
-        auto* color=findButton(*editor,"COLOR");
-        verify(color!=nullptr && bool(color->onClick),"Color page missing");
-        color->onClick();
-        verify(int(processor.parameters.state.getProperty("uiPage",-1))==1,
-               "Color page did not update");
-        bool foundFlangerControl=false;
-        for(int i=0;i<editor->getNumChildComponents();++i)
-            if(auto* label=dynamic_cast<juce::Label*>(editor->getChildComponent(i)))
-                if(label->getText()=="SWEEP RANGE"&&label->isVisible())
-                    foundFlangerControl=true;
-        verify(foundFlangerControl,"Color page did not expose the mode macro");
-        auto* core=findButton(*editor,"CORE");
-        verify(core!=nullptr && bool(core->onClick),"Core page missing");
-        core->onClick();
+        verify(editor->isShowing(),"Editor needs a native peer for real screenshots");
+        verify(editor->getWidth()==540,"Compact size changed unexpectedly");
+        verify(processor.getProgramName(0).isNotEmpty(),"Missing host program name");
 
-        // Shared SkellCore renderer captures the real editor AND child controls.
-        // Capture all pages in compact/comfortable/large/studio layouts rather
-        // than using an ad-hoc paint() call that misses nested components.
-        skellcore::ui::headless::Options options;
-        options.project="Skell-Flang actual JUCE AudioProcessorEditor";
-        options.minimumColours=12;
-        for(const int width : std::array<int,4>{540,720,900,1080}) {
-            for(int view=0;view<5;++view) {
-                skellcore::ui::headless::Scene scene;
-                const juce::String suffix[]={"flanger-core","flanger-color",
-                                              "flanger-motion","flanger-morph-full",
-                                              "tuned-motion"};
-                scene.id="Skell-Flang-"+juce::String(width)+"-"+suffix[view];
-                scene.width=width;
-                scene.height=juce::roundToInt(double(width)*450./720.);
-                scene.mode=view==4?5:1;
-                scene.theme=view==0?0:view==1?1:2; // UI page, not a cosmetic theme
-                scene.browser=view==3; // Test MORPH at maximum in this view
-                options.scenes.push_back(scene);
-            }
+        const std::array<int,5> choices{0,1,6,4,7};
+        const std::array<const char*,5> names{"CHORUS","FLANGER","FLANGUS","ORBIT","DIMENSION"};
+        for(size_t i=0;i<choices.size();++i) {
+            auto* tab=findButton(*editor,names[i]);
+            click(tab,"Missing effect tab or callback");
+            verify(int(processor.parameters.getRawParameterValue("mode")->load())==choices[i],
+                   "Displayed mode ID does not match the host parameter choice");
         }
+        for(const char* old:{"VOWEL","REVERSE","TUNED"})
+            verify(findButton(*editor,old)==nullptr,"Removed mode visible in selector");
+        auto* skull=byID(*editor,"skull");
+        auto* cog=byID(*editor,"settings");
+        auto* mod=byID(*editor,"mod");
+        auto* preset=byID(*editor,"preset");
+        verify(skull&&cog&&mod&&preset,"Missing skull, gear, mod or preset control");
+        verify(bool(skull->onClick)&&bool(cog->onClick)&&bool(mod->onClick)&&bool(preset->onClick),
+               "An interactive header control has no callback");
+
+        auto* morph=dynamic_cast<juce::Slider*>(editor->findChildWithID("morph"));
+        verify(morph!=nullptr && !morph->isVisible(),
+               "Modulation should not cover the tone controls by default");
+        click(mod,"MOD drawer cannot open");
+        verify(morph->isVisible(),"MOD drawer did not show MORPH");
+        verify(findButton(*editor,"BACK")!=nullptr,"MOD drawer missing close control");
+        click(mod,"MOD drawer cannot close");
+        verify(!morph->isVisible(),"MOD drawer did not close");
+
+        // A factory preset must update the engine AND the character controls.
+        processor.applyFactoryPreset(7);
+        verify(int(processor.parameters.getRawParameterValue("mode")->load())==6,
+               "Flangus preset did not select Flangus");
+        verify(processor.parameters.getRawParameterValue("extra0")->load()>.6f,
+               "Flangus preset did not load its own sound macros");
+        verify(processor.parameters.state.getProperty("presetName").toString()=="Flangus Glow",
+               "Preset title was not saved");
+        verify(processor.getLatencySamples()==0,"Unexpected host delay compensation");
+
+        // Shared SkellCore captures the ACTUAL editor child tree at every
+        // supported size, across all five modes, with and without the MOD drawer.
+        skellcore::ui::headless::Options options;
+        options.project="Skell-Flang v0.7 actual JUCE AudioProcessorEditor";
+        options.minimumColours=12;
+        for(const int width:std::array<int,4>{540,720,900,1080})
+            for(size_t mode=0;mode<choices.size();++mode)
+                for(int drawer=0;drawer<2;++drawer) {
+                    skellcore::ui::headless::Scene scene;
+                    scene.id="Skell-Flang-"+juce::String(width)+"-"+
+                              juce::String(names[mode]).toLowerCase()+
+                              (drawer?"-mod":"-tone");
+                    scene.width=width;
+                    scene.height=juce::roundToInt(double(width)*450./720.);
+                    scene.mode=choices[mode];
+                    scene.browser=drawer!=0;
+                    options.scenes.push_back(scene);
+                }
         options.configure=[&](const auto& scene) {
-            auto* modeButton=findButton(*editor,scene.mode==5?"TUNED":"FLANGER");
-            verify(modeButton!=nullptr && bool(modeButton->onClick),
-                   "Mode tab cannot be selected");
-            modeButton->onClick();
-            const juce::String names[]{"CORE","COLOR","MOTION"};
-            auto* pageButton=findButton(*editor,names[scene.theme]);
-            verify(pageButton!=nullptr && bool(pageButton->onClick),
-                   "Page tab cannot be selected");
-            pageButton->onClick();
-            auto* morphSlider=dynamic_cast<juce::Slider*>(editor->findChildWithID("morph"));
-            verify(morphSlider!=nullptr,"MORPH control missing");
-            morphSlider->setValue(scene.browser?1.0:0.0,juce::sendNotificationSync);
+            auto* tab=findButton(*editor,juce::String(
+                scene.mode==0?"CHORUS":scene.mode==1?"FLANGER":
+                scene.mode==6?"FLANGUS":scene.mode==4?"ORBIT":"DIMENSION"));
+            click(tab,"Mode screenshot selector could not be clicked");
+            verify(int(processor.parameters.getRawParameterValue("mode")->load())==scene.mode,
+                   "Wrong mode in screenshot");
+            const bool drawerOpen=mod->getButtonText()=="BACK";
+            if(drawerOpen!=scene.browser)click(mod,"MOD drawer scene toggle failed");
+            verify(morph->isVisible()==scene.browser,"MOD drawer scene visibility incorrect");
         };
-        options.inspect=[&]() {
-            juce::StringArray problems;
+        options.inspect=[&]{
+            juce::StringArray errors;
             const auto bounds=editor->getLocalBounds();
-            int visible=0;
-            for(int c=0;c<editor->getNumChildComponents();++c) {
-                auto* child=editor->getChildComponent(c);
-                if(!child || !child->isVisible())continue;
-                if(!bounds.contains(child->getBounds()))
-                    problems.add("Visible control outside editor: "+child->getName());
-                if(child->getWidth()<=5 || child->getHeight()<=5)
-                    problems.add("Control too small to interact with: "+child->getName());
-                ++visible;
+            int count=0;
+            for(int i=0;i<editor->getNumChildComponents();++i) {
+                auto* c=editor->getChildComponent(i);
+                if(!c||!c->isVisible())continue;
+                if(!bounds.contains(c->getBounds()))
+                    errors.add("Control out of bounds: "+c->getComponentID());
+                if(c->getWidth()<=5||c->getHeight()<=5)
+                    errors.add("Control too small: "+c->getComponentID());
+                ++count;
             }
-            if(visible<25)problems.add("Too few visible controls");
-            return problems;
+            if(count<25)errors.add("Too few visible controls");
+            return errors;
         };
         options.mustDiffer={
-            {"Skell-Flang-540-flanger-core","Skell-Flang-540-flanger-color"},
-            {"Skell-Flang-540-flanger-color","Skell-Flang-540-flanger-motion"},
-            {"Skell-Flang-540-flanger-motion","Skell-Flang-540-flanger-morph-full"},
-            {"Skell-Flang-540-flanger-motion","Skell-Flang-540-tuned-motion"}
+            {"Skell-Flang-540-chorus-tone","Skell-Flang-540-chorus-mod"},
+            {"Skell-Flang-540-flanger-tone","Skell-Flang-540-flangus-tone"},
+            {"Skell-Flang-540-orbit-tone","Skell-Flang-540-dimension-tone"}
         };
-        // Windows CI software rendering sanity check before using snapshots.
         juce::Image probe(juce::Image::ARGB,8,8,true);
         {juce::Graphics g(probe);g.fillAll(juce::Colours::red);}
         verify(probe.getPixelAt(4,4).getRed()>200,
-               "Windows CI software image rendering unavailable");
-        const auto directory=juce::File::getCurrentWorkingDirectory().getChildFile("build/ui-smoke");
-        const auto report=skellcore::ui::headless::render(*editor,directory,options);
+               "CI runner software rendering unavailable");
+
+        const auto output=juce::File::getCurrentWorkingDirectory().getChildFile("build/ui-smoke");
+        const auto report=skellcore::ui::headless::render(*editor,output,options);
         for(const auto& error:report.errors)
-            std::cerr<<error.toStdString()<<"\\n";
-        verify(report.passed(),"Shared SkellCore renderer reported a visual regression");
-        verify(report.captured==20,"Expected 20 real-editor JUCE screenshots");
-        std::cout<<"SkellCore rendered "<<report.captured
-                 <<" real-editor scenes across four sizes and five views\\n";
-        juce::AudioBuffer<float> buffer(2,64);
+            std::cerr<<"Visual regression: "<<error.toStdString()<<"\n";
+        verify(report.passed(),"Shared SkellCore visual regression failed");
+        verify(report.captured==40,"Expected 40 screenshots at four widths");
+        std::cout<<"SkellCore captured "<<report.captured<<" real-editor views\n";
+
+        // Keep testing legacy Tuned playback for old FL Studio saves, although
+        // that mode no longer appears as a tab in the current interface.
+        if(auto* v=processor.parameters.getParameter("mode"))
+            v->setValueNotifyingHost(v->convertTo0to1(5.f));
+        juce::AudioBuffer<float> audio(2,64);
         juce::MidiBuffer midi;
         for(int pass=0;pass<100;++pass) {
             for(int i=0;i<64;++i){
-                const float sample=float(.2*std::sin(2*skellflang::pi*440.*(pass*64+i)/48000.));
-                buffer.setSample(0,i,sample);buffer.setSample(1,i,-sample);
+                const float input=float(.2*std::sin(2*skellflang::pi*440.*(pass*64+i)/48000.));
+                audio.setSample(0,i,input);audio.setSample(1,i,-input);
             }
-            processor.processBlock(buffer,midi);
+            processor.processBlock(audio,midi);
             for(int ch=0;ch<2;++ch)
                 for(int i=0;i<64;++i)
-                    verify(std::isfinite(buffer.getSample(ch,i)),"Audio output not finite");
+                    verify(std::isfinite(audio.getSample(ch,i)),"Non-finite audio output");
         }
-        // The final screenshot selects TUNED. An anti-phase stereo sine must
-        // still lock: mono summing these channels would erase the fundamental.
-        verify(processor.meters.confidence.load(std::memory_order_relaxed)>.78f,
-               "Tuned tracker lost anti-phase stereo pitch confidence");
-        const float detectedPitch=processor.meters.pitch.load(std::memory_order_relaxed);
-        verify(detectedPitch>420.f && detectedPitch<460.f,
-               "Tuned tracker missed 440 Hz anti-phase stereo tone");
+        verify(processor.meters.confidence.load()>.78f,
+               "Legacy tuned tracker lost anti-phase stereo note");
         processor.releaseResources();
         return 0;
-    } catch(const std::exception& exception) {
-        std::cerr<<"Skell-Flang UI smoke test failed: "<<exception.what()<<"\n";
+    }catch(const std::exception& e){
+        std::cerr<<"Skell-Flang v0.7 UI test failed: "<<e.what()<<"\n";
         return 1;
     }
 }

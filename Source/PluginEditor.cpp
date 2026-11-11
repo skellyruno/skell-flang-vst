@@ -8,28 +8,32 @@ const juce::Colour dark=juce::Colour::fromRGB(7,12,14);
 const juce::Colour panel=juce::Colour::fromRGB(17,26,29);
 const juce::Colour bone=juce::Colour::fromRGB(226,239,230);
 const juce::Colour muted=juce::Colour::fromRGB(143,169,164);
-const char* modes[]={"CHORUS","FLANGER","VOWEL","REVERSE","ORBIT","TUNED"};
-const char* lanes[]={"DEPTH","SPEED","DELAY","SPREAD","CROSS","DRY","WET"};
+const char* modes[]{"CHORUS","FLANGER","VOWEL (LEGACY)","REVERSE (LEGACY)",
+                     "ORBIT","TUNED (LEGACY)","FLANGUS","DIMENSION"};
+constexpr std::array<int,5> visibleModes{0,1,6,4,7};
+const char* lanes[]{"DEPTH","SPEED","DELAY","SPREAD","CROSS","DRY","WET"};
 const char* knobNames[][4]{
     {"DETUNE","WIDTH","WARMTH","ENSEMBLE"},
-    {"SWEEP RANGE","FB COLOR","MANUAL","ENV FOLLOW"},
-    {"VOWEL","GENDER","SHARPNESS","COMB"},
+    {"SWEEP","COLOR","MANUAL","ENV"},
+    {"VOWEL","GENDER","SHARP","COMB"},
     {"GRAIN","OVERLAP","SMEAR","SHIMMER"},
     {"RADIUS","TILT","AIR","SPIN"},
-    {"TRACK","GLIDE","HARMONIC","RESONANCE"}
+    {"TRACK","GLIDE","HARMONIC","RESONANCE"},
+    {"TRAVEL","WIDTH","JET","SHADE"},
+    {"DETUNE","WIDTH","SOFTNESS","PAN"}
 };
 const juce::Colour tints[]{
     juce::Colour::fromRGB(81,222,188),juce::Colour::fromRGB(65,207,216),
     juce::Colour::fromRGB(154,219,179),juce::Colour::fromRGB(124,207,207),
-    juce::Colour::fromRGB(93,192,220),juce::Colour::fromRGB(177,222,156)
+    juce::Colour::fromRGB(93,192,220),juce::Colour::fromRGB(177,222,156),
+    juce::Colour::fromRGB(133,224,181),juce::Colour::fromRGB(147,204,245)
 };
-const char* presets[]{
-    "INIT","Lush Choir Bus","Vocal Double Wash","Crypt Ensemble",
-    "Jet Skeleton","Deep Jet Whoosh","Grave Ring",
-    "Talking Bones","Ghost Choir Sweep","Wah Reaper",
-    "Bloom Backwards","Spectral Tide","Rage Swell",
-    "Skull Carousel","Haunted Merry-Go-Round","Slow Moon",
-    "Key-Locked Jet","Pitch Ghost","Harmonic Chain"
+constexpr std::array<const char*,16> presets{
+    "INIT","Velvet Chorus","Wide Vocal Double","Neon Ensemble",
+    "Satin Flanger","Jet Sweep","Polarity Comb",
+    "Flangus Glow","Flangus Motion","Flangus Jet",
+    "Orbit Halo","Orbit Carousel","Orbit Pulse",
+    "Dimension Air","Dimension Doubler","Dimension Width"
 };
 void styleSlider(juce::Slider& slider,bool vertical){
     slider.setSliderStyle(vertical?juce::Slider::LinearVertical:
@@ -146,51 +150,140 @@ void FlangLookAndFeel::drawButtonBackground(juce::Graphics&g,juce::Button&button
                                              const juce::Colour&,bool hover,bool down) {
     const auto b=button.getLocalBounds().toFloat().reduced(1.f);
     const bool selected=button.getToggleState();
-    g.setColour(selected?accent.withAlpha(.15f):
-                hover?juce::Colour::fromRGB(25,43,44):juce::Colour::fromRGB(14,24,27));
+    g.setColour(selected?accent.withAlpha(.17f):
+                hover?juce::Colour::fromRGB(26,47,47):juce::Colour::fromRGB(14,24,27));
     g.fillRoundedRectangle(b,5.f);
-    g.setColour(selected?accent.withAlpha(.86f):juce::Colour::fromRGB(40,67,64));
-    g.drawRoundedRectangle(b,5.f,selected?1.2f:.8f);
-    if(down){g.setColour(accent.withAlpha(.20f));g.fillRoundedRectangle(b.reduced(2.f),4.f);}
+    g.setColour(selected?accent.withAlpha(.92f):juce::Colour::fromRGB(46,79,73));
+    g.drawRoundedRectangle(b,5.f,selected?1.3f:.85f);
+    if(down){g.setColour(accent.withAlpha(.18f));g.fillRoundedRectangle(b.reduced(2.f),4.f);}
+    const auto id=button.getComponentID();
+    if(id=="skull") {
+        // Small original bone crest; vector drawn at any editor scale.
+        const float cx=b.getCentreX(),cy=b.getCentreY();
+        const float unit=std::min(b.getWidth()/38.f,b.getHeight()/28.f);
+        auto p=[&](float v){return v*unit;};
+        g.setColour(accent.withAlpha(.95f));
+        g.fillEllipse(cx-p(10.f),cy-p(11.f),p(20.f),p(19.f));
+        g.fillRoundedRectangle(cx-p(7.f),cy+p(1.f),p(14.f),p(10.f),p(2.f));
+        g.setColour(juce::Colour::fromRGB(9,21,23));
+        g.fillEllipse(cx-p(7.5f),cy-p(4.f),p(6.5f),p(6.f));
+        g.fillEllipse(cx+p(1.f),cy-p(4.f),p(6.5f),p(6.f));
+        juce::Path nose;
+        nose.addTriangle(cx,cy+p(2.f),cx-p(2.2f),cy+p(5.f),cx+p(2.2f),cy+p(5.f));
+        g.fillPath(nose);
+        g.setColour(juce::Colour::fromRGB(9,21,23).withAlpha(.85f));
+        g.drawLine(cx-p(4.5f),cy+p(7.6f),cx+p(4.5f),cy+p(7.6f),p(.8f));
+        g.drawLine(cx,cy+p(5.6f),cx,cy+p(10.f),p(.8f));
+    } else if(id=="settings") {
+        const float cx=b.getCentreX(),cy=b.getCentreY();
+        const float rr=std::min(b.getWidth(),b.getHeight())*.23f;
+        g.setColour(accent.withAlpha(.9f));
+        for(int k=0;k<8;++k) {
+            const float theta=float(2*skellflang::pi*k/8.);
+            g.drawLine(cx+std::cos(theta)*rr,cy+std::sin(theta)*rr,
+                       cx+std::cos(theta)*rr*1.43f,cy+std::sin(theta)*rr*1.43f,1.6f);
+        }
+        g.drawEllipse(cx-rr,cy-rr,2*rr,2*rr,1.7f);
+        g.fillEllipse(cx-rr*.34f,cy-rr*.34f,rr*.68f,rr*.68f);
+    }
 }
-SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioProcessor&p)
+
+juce::Font FlangLookAndFeel::getPopupMenuFont() {
+    return juce::Font(13.f);
+}
+void FlangLookAndFeel::drawPopupMenuBackground(juce::Graphics&g,int w,int h) {
+    g.fillAll(juce::Colour::fromRGB(9,20,23));
+    g.setColour(juce::Colour::fromRGB(52,87,80));
+    g.drawRect(0,0,w,h,1);
+}
+void FlangLookAndFeel::drawPopupMenuSectionHeader(juce::Graphics&g,
+        const juce::Rectangle<int>& area,const juce::String& title) {
+    g.setColour(accent.withAlpha(.87f));
+    g.setFont(juce::Font(10.5f,juce::Font::bold));
+    g.drawFittedText(title.toUpperCase(),area.reduced(13,0),
+                     juce::Justification::centredLeft,1);
+}
+void FlangLookAndFeel::drawPopupMenuItem(juce::Graphics&g,
+       const juce::Rectangle<int>& area,bool separator,bool enabled,bool highlighted,
+       bool ticked,bool submenu,const juce::String& caption,const juce::String&,
+       const juce::Drawable*,const juce::Colour* overrideColour) {
+    if(separator) {
+        g.setColour(juce::Colour::fromRGB(49,83,75));
+        g.drawHorizontalLine(area.getCentreY(),float(area.getX()+12),float(area.getRight()-12));
+        return;
+    }
+    const auto inner=area.reduced(4,1);
+    if(highlighted&&enabled) {
+        g.setColour(accent.withAlpha(.15f));g.fillRoundedRectangle(inner.toFloat(),4.f);
+        g.setColour(accent.withAlpha(.58f));g.fillRoundedRectangle(float(inner.getX()),
+                                             float(inner.getY()+4),2.f,float(inner.getHeight()-8),1.f);
+    }
+    juce::Colour fg=overrideColour?*overrideColour:bone;
+    if(!enabled)fg=fg.withAlpha(.38f);
+    g.setColour(fg);
+    g.setFont(juce::Font(12.5f,highlighted?juce::Font::bold:juce::Font::plain));
+    g.drawFittedText(caption,area.withTrimmedLeft(27).withTrimmedRight(18),
+                     juce::Justification::centredLeft,1);
+    if(ticked) {
+        g.setColour(accent);
+        g.fillEllipse(float(area.getX()+11),float(area.getCentreY()-3),6.f,6.f);
+    }
+    if(submenu) {
+        juce::Path arrow;
+        const float ax=float(area.getRight()-13),ay=float(area.getCentreY());
+        arrow.startNewSubPath(ax-3,ay-4);arrow.lineTo(ax+1,ay);
+        arrow.lineTo(ax-3,ay+4);
+        g.setColour(accent.withAlpha(.8f));g.strokePath(arrow,juce::PathStrokeType(1.6f));
+    }
+}
+void FlangLookAndFeel::getIdealPopupMenuItemSize(
+        const juce::String& text,bool separator,int,int& width,int& height) {
+    width=separator?30:juce::jmax(180,juce::roundToInt(juce::Font(12.5f).getStringWidthFloat(text))+62);
+    height=separator?9:30;
+}
+SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioProcessor& p)
 : AudioProcessorEditor(&p),processor(p) {
     setLookAndFeel(&skin);
-    // Accessible text contrast and consistent dark dropdowns, even in FL Studio.
-    for(auto* dropdown : {&target,&shape,&root,&scale,&tuneSource}) {
-        dropdown->setColour(juce::ComboBox::backgroundColourId,juce::Colour::fromRGB(13,29,31));
+    for(auto* dropdown:{&target,&shape}) {
+        dropdown->setColour(juce::ComboBox::backgroundColourId,juce::Colour::fromRGB(10,27,29));
         dropdown->setColour(juce::ComboBox::textColourId,bone);
-        dropdown->setColour(juce::ComboBox::outlineColourId,juce::Colour::fromRGB(52,80,74));
-        dropdown->setColour(juce::ComboBox::arrowColourId,juce::Colour::fromRGB(128,208,182));
+        dropdown->setColour(juce::ComboBox::outlineColourId,juce::Colour::fromRGB(47,82,72));
+        dropdown->setColour(juce::ComboBox::arrowColourId,juce::Colour::fromRGB(116,212,172));
     }
-    skin.setColour(juce::PopupMenu::backgroundColourId,juce::Colour::fromRGB(15,27,29));
+    skin.setColour(juce::PopupMenu::backgroundColourId,juce::Colour::fromRGB(9,20,23));
     skin.setColour(juce::PopupMenu::textColourId,bone);
-    skin.setColour(juce::PopupMenu::highlightedBackgroundColourId,juce::Colour::fromRGB(45,81,76));
+    skin.setColour(juce::PopupMenu::highlightedBackgroundColourId,juce::Colour::fromRGB(28,61,55));
     skin.setColour(juce::PopupMenu::highlightedTextColourId,bone);
-    page=juce::jlimit(0,2,int(p.parameters.state.getProperty("uiPage",0)));
-    for(int i=0;i<7;++i){
-        styleSlider(faders[i],true);addAndMakeVisible(faders[i]);
+    theme=juce::jlimit(0,2,int(p.parameters.state.getProperty("uiTheme",0)));
+    // Old sessions can restore uiPage=2; translate that to the new single MOD drawer.
+    modulationOpen=int(p.parameters.state.getProperty("uiPage",0))==2;
+    for(int i=0;i<7;++i) {
+        styleSlider(faders[i],true);
+        addAndMakeVisible(faders[i]);
         const auto id=juce::StringArray{"depth","speed","delay","spread","cross","dry","wet"}[i];
         if(auto* param=p.parameters.getParameter(id))
             faders[i].setDoubleClickReturnValue(true,param->convertFrom0to1(param->getDefaultValue()));
         label(faderLabels[i],lanes[i]);addAndMakeVisible(faderLabels[i]);
         faders[i].onValueChange=[this,i] {
-            faders[i].setTooltip(juce::String(lanes[i])+"  "+
-                juce::String(faders[i].getValue()*100.0,1)+"%");
+            faders[i].setTooltip(juce::String(lanes[i])+" · "+juce::String(faders[i].getValue(),2));
         };
         faderLinks[i]=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-            p.parameters,juce::StringArray{"depth","speed","delay","spread","cross","dry","wet"}[i],faders[i]);
+            p.parameters,id,faders[i]);
     }
-    styleSlider(order,true);order.setRange(1,8,1);order.setDoubleClickReturnValue(true,3);addAndMakeVisible(order);
+    styleSlider(order,true);
+    order.setRange(1,8,1);
+    order.setDoubleClickReturnValue(true,3);
+    order.setTooltip("Number of stacked voices (1–8)");
+    addAndMakeVisible(order);
     orderLink=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         p.parameters,"order",order);
+
     for(int i=0;i<7;++i) {
         styleSlider(knobs[i],false);addAndMakeVisible(knobs[i]);
-        label(knobLabels[i],i==0?"FEEDBACK":i==1?"TONE":i==2?"OUTPUT":"MODE");
+        label(knobLabels[i],i==0?"FEEDBACK":i==1?"TONE":i==2?"OUTPUT":"COLOR");
         addAndMakeVisible(knobLabels[i]);
         knobs[i].onValueChange=[this,i] {
-            knobs[i].setTooltip(knobLabels[i].getText()+"  "+
-                juce::String(knobs[i].getValue(),2));
+            knobs[i].setTooltip(knobLabels[i].getText()+" · "+juce::String(knobs[i].getValue(),2));
         };
         const auto id=i==0?"feedback":i==1?"tone":i==2?"output":
                       i==3?"extra0":i==4?"extra1":i==5?"extra2":"extra3";
@@ -199,105 +292,150 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         knobLinks[i]=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
             p.parameters,id,knobs[i]);
     }
-    const char* modeDescriptions[]{
-        "Wide multi-voice chorus","Classic sweeping comb flanger",
-        "Animated resonant vowel filter","Granular reverse-swell modulation",
-        "Rotating stereo motion","Pitch and key-following comb"
+    const char* hints[]{
+        "Multi-voice detuned stereo chorus",
+        "Comb flanger with stereo phase modulation",
+        "Stacked chorus-flanger hybrid",
+        "Rotating stereo field with independent L/R",
+        "Slow stereo doubler and dimensional widening"
     };
-    for(int i=0;i<6;++i){
-        tabs[i].setButtonText(modes[i]);
-        tabs[i].setTooltip(modeDescriptions[i]);
-        addAndMakeVisible(tabs[i]);
-        tabs[i].onClick=[this,i]{
-            if(auto*param=processor.parameters.getParameter("mode")){
+    for(int i=0;i<5;++i) {
+        const int mode=visibleModes[size_t(i)];
+        tabs[size_t(i)].setButtonText(modes[mode]);
+        tabs[size_t(i)].setTooltip(hints[i]);
+        tabs[size_t(i)].setComponentID("mode-"+juce::String(mode));
+        addAndMakeVisible(tabs[size_t(i)]);
+        tabs[size_t(i)].onClick=[this,mode]{
+            if(auto* param=processor.parameters.getParameter("mode")) {
                 param->beginChangeGesture();
-                param->setValueNotifyingHost(param->convertTo0to1(float(i)));
+                param->setValueNotifyingHost(param->convertTo0to1(float(mode)));
                 param->endChangeGesture();
             }
-            updateMode(); // No 24 Hz UI polling delay on direct mode click.
+            updateMode();
         };
     }
-    for(int i=0;i<6;++i)target.addItem(modes[i],i+1);
-    for(int i=0;i<5;++i)shape.addItem(juce::StringArray{"Sine","Triangle","Saw+","Saw-","Square"}[i],i+1);
-    for(int i=0;i<12;++i)root.addItem(juce::StringArray{"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"}[i],i+1);
-    for(int i=0;i<4;++i)scale.addItem(juce::StringArray{"Major","Minor","Pentatonic","Chromatic"}[i],i+1);
-    tuneSource.addItem("FOLLOW",1);tuneSource.addItem("KEY",2);
-    juce::ComboBox* boxes[]{&target,&shape,&root,&scale,&tuneSource};
-    const char* names[]{"morphTarget","lfoShape","tnRoot","tnScale","tnSource"};
-    for(int i=0;i<5;++i) {
-        addAndMakeVisible(*boxes[i]);
-        comboLinks[i]=std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
-            p.parameters,names[i],*boxes[i]);
-    }
+
+    // The host retains all eight original choice positions. The compact UI
+    // intentionally offers only the five current effects, with direct IDs.
+    for(const auto mode:visibleModes)target.addItem(modes[mode],mode+1);
+    target.onChange=[this]{
+        const int selected=target.getSelectedId()-1;
+        if(selected>=0)
+            if(auto* param=processor.parameters.getParameter("morphTarget")) {
+                param->beginChangeGesture();
+                param->setValueNotifyingHost(param->convertTo0to1(float(selected)));
+                param->endChangeGesture();
+            }
+    };
+    for(int i=0;i<5;++i)
+        shape.addItem(juce::StringArray{"Sine","Triangle","Saw+","Saw-","Square"}[i],i+1);
+    addAndMakeVisible(target);addAndMakeVisible(shape);
+    comboLinks[1]=std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        p.parameters,"lfoShape",shape);
     morph.setSliderStyle(juce::Slider::LinearHorizontal);
     morph.setTextBoxStyle(juce::Slider::NoTextBox,false,0,0);
     morph.setDoubleClickReturnValue(true,0.0);
-    morph.setTooltip("Crossfade into the selected target effect");
+    morph.setTooltip("Crossfade to the selected destination effect");
     morph.setComponentID("morph");
     addAndMakeVisible(morph);
     morphLink=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         p.parameters,"morph",morph);
-    power.setClickingTogglesState(true);
     sync.setClickingTogglesState(true);
-    power.setTooltip("Enable or bypass the entire effect");
-    sync.setTooltip("Follow the host tempo");
-    addAndMakeVisible(power);addAndMakeVisible(sync);
-    powerLink=std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
-        p.parameters,"power",power);
+    sync.setTooltip("Sync LFO motion to your host tempo");
+    addAndMakeVisible(sync);
     syncLink=std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
         p.parameters,"lfoSync",sync);
-    addAndMakeVisible(preset);addAndMakeVisible(settings);
-    preset.setTooltip("Choose an original Skell-Flang sound");
-    settings.setTooltip("Plugin size and scaling");
-    const char* pageNames[]{"CORE","COLOR","MOTION"};
-    const char* pageHints[]{
-        "Main level, feedback, tone, output",
-        "Four mode-dependent character controls",
-        "Morph destination and host sync / tuning"
+    // Keep the automatable power parameter and attachment, but no ACTIVE/BYPASS
+    // banner. Processing can be enabled in the gear menu or by host automation.
+    power.setClickingTogglesState(true);
+    power.setVisible(false);
+    powerLink=std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        p.parameters,"power",power);
+
+    skull.setComponentID("skull");skull.setTooltip("Cycle Skell-Flang skins");
+    settings.setComponentID("settings");settings.setTooltip("Plugin settings and window size");
+    mod.setComponentID("mod");mod.setTooltip("Open modulation and morph controls");
+    preset.setComponentID("preset");preset.setTooltip("Open the Skell-Flang sound library");
+    addAndMakeVisible(skull);addAndMakeVisible(settings);
+    addAndMakeVisible(mod);addAndMakeVisible(preset);
+    mod.onClick=[this]{
+        modulationOpen=!modulationOpen;
+        processor.parameters.state.setProperty("uiPage",modulationOpen?2:0,nullptr);
+        updatePage();repaint();
     };
-    for(int i=0;i<3;++i) {
-        pages[i].setButtonText(pageNames[i]);
-        pages[i].setTooltip(pageHints[i]);
-        addAndMakeVisible(pages[i]);
-        pages[i].onClick=[this,i] {
-            page=i;
-            processor.parameters.state.setProperty("uiPage",page,nullptr);
-            updatePage();
-            repaint();
-        };
-    }
+    skull.onClick=[this]{
+        theme=(theme+1)%3;
+        processor.parameters.state.setProperty("uiTheme",theme,nullptr);
+        shownMode=-1;updateMode();
+    };
     const juce::Component::SafePointer<SkellFlangAudioProcessorEditor> safeEditor(this);
-    preset.onClick=[this,safeEditor]{
+    preset.onClick=[this,safeEditor] {
         juce::PopupMenu menu;
-        for(int i=0;i<19;++i)menu.addItem(i+1,presets[i]);
-        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&preset),
-            [safeEditor](int selected){
-                if(safeEditor&&selected>0){
-                    safeEditor->processor.applyFactoryPreset(selected-1);
+        menu.addSectionHeader("SKELL SOUND LIBRARY");
+        const auto selected=processor.parameters.state.getProperty("presetName","INIT").toString();
+        menu.addItem(1,"INIT · Neutral Start",true,selected=="INIT");
+        menu.addSeparator();
+        const char* groups[]{"CHORUS / ENSEMBLE","FLANGER / COMB","FLANGUS / HYBRID",
+                             "ORBIT / SPATIAL","DIMENSION / DOUBLE"};
+        const int offsets[]{1,4,7,10,13};
+        for(int group=0;group<5;++group) {
+            juce::PopupMenu sounds;
+            for(int j=0;j<3;++j) {
+                const int index=offsets[group]+j;
+                sounds.addItem(index+1,presets[size_t(index)],true,
+                               selected==presets[size_t(index)]);
+            }
+            menu.addSubMenu(groups[group],sounds);
+        }
+        menu.showMenuAsync(juce::PopupMenu::Options()
+                             .withTargetComponent(&preset).withMinimumWidth(244),
+            [safeEditor](int result){
+                if(safeEditor&&result>=1&&result<=16) {
+                    safeEditor->processor.applyFactoryPreset(result-1);
                     safeEditor->updateMode();
                 }
             });
     };
     settings.onClick=[this,safeEditor]{
         juce::PopupMenu menu;
-        menu.addItem(1,"Compact (540 x 338)");menu.addItem(2,"Comfortable (720 x 450)");
-        menu.addItem(3,"Large (900 x 563)");menu.addItem(4,"Studio (1080 x 675)");
+        menu.addSectionHeader("SKELL-FLANG SETTINGS");
+        const auto* active=processor.parameters.getRawParameterValue("power");
+        const bool powered=active&&active->load(std::memory_order_relaxed)>.5f;
+        menu.addItem(1,"Effect enabled",true,powered);
+        menu.addSeparator();
+        menu.addSectionHeader("WINDOW SIZE");
+        const char* names[]{"Compact · 540","Comfort · 720",
+                            "Large · 900","Studio · 1080"};
+        const int widths[]{540,720,900,1080};
+        for(int i=0;i<4;++i)
+            menu.addItem(10+i,names[i],true,juce::roundToInt(getWidth())==widths[i]);
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&settings),
-            [safeEditor](int selection){
-                if(safeEditor&&selection>0) {
-                    const int widths[]{540,720,900,1080};
-                    const int w=widths[selection-1];
+            [safeEditor](int item){
+                if(!safeEditor)return;
+                if(item==1) {
+                    if(auto* v=safeEditor->processor.parameters.getParameter("power")) {
+                        v->beginChangeGesture();
+                        v->setValueNotifyingHost(v->convertTo0to1(
+                            v->getValue()>.5f?0.f:1.f));
+                        v->endChangeGesture();
+                    }
+                } else if(item>=10&&item<14) {
+                    const int width[]={540,720,900,1080};
+                    const int w=width[item-10];
                     safeEditor->processor.parameters.state.setProperty("uiWidth",w,nullptr);
                     safeEditor->setSize(w,juce::roundToInt(w*double(baseH)/baseW));
                 }
             });
     };
+
     setResizable(true,true);
     if(auto* c=getConstrainer())c->setFixedAspectRatio(double(baseW)/baseH);
     setResizeLimits(540,338,1080,675);
-    const int savedWidth=juce::jlimit(540,1080,int(p.parameters.state.getProperty("uiWidth",540)));
+    const int savedWidth=juce::jlimit(540,1080,
+        int(p.parameters.state.getProperty("uiWidth",540)));
     setSize(savedWidth,juce::roundToInt(savedWidth*double(baseH)/baseW));
     updateMode();
+    updatePage();
     startTimerHz(24);
 }
 SkellFlangAudioProcessorEditor::~SkellFlangAudioProcessorEditor(){
@@ -310,87 +448,84 @@ void SkellFlangAudioProcessorEditor::resized() {
        int(processor.parameters.state.getProperty("uiWidth",540))!=currentWidth)
         processor.parameters.state.setProperty("uiWidth",currentWidth,nullptr);
     const float s=currentWidth/float(baseW);
-    // JUCE child components are independent of the graphics scale. Resize text
-    // explicitly or compact mode inherits oversized fonts.
     const auto fontSize=juce::jlimit(9.2f,12.5f,12.5f*s);
     for(auto& text:faderLabels)text.setFont(juce::Font(fontSize));
-    for(auto& text:knobLabels)text.setFont(juce::Font(fontSize));
-    auto place=[s](juce::Component&c,int x,int y,int w,int h) {
+    for(auto& text:knobLabels)text.setFont(juce::Font(juce::jlimit(9.f,11.f,11.f*s)));
+    auto place=[s](juce::Component&c,int x,int y,int w,int h){
         c.setBounds(juce::roundToInt(x*s),juce::roundToInt(y*s),
                     juce::roundToInt(w*s),juce::roundToInt(h*s));
     };
-    place(settings,14,12,51,29);place(preset,338,12,231,29);place(power,601,12,104,29);
-    for(int i=0;i<6;++i)place(tabs[i],16+i*115,62,109,36);
+    place(skull,14,12,43,29);
+    place(preset,339,12,220,29);
+    place(mod,568,12,64,29);
+    place(settings,643,12,62,29);
+    for(int i=0;i<5;++i)place(tabs[size_t(i)],16+i*139,62,132,36);
     place(order,25,151,52,158);
     for(int i=0;i<7;++i) {
-        place(faders[i],93+i*62,151,49,158);
-        place(faderLabels[i],88+i*62,307,59,21);
+        place(faders[size_t(i)],93+i*62,151,49,158);
+        place(faderLabels[size_t(i)],88+i*62,307,59,21);
+        const int x=121+i*82;
+        place(knobs[size_t(i)],x,351,60,53);
+        place(knobLabels[size_t(i)],x-7,405,76,18);
     }
-    for(int i=0;i<3;++i)place(pages[i],27,354+i*23,81,22);
-    for(int i=0;i<7;++i) {
-        const int xx=i<3?(247+i*151):(236+(i-3)*111);
-        place(knobs[i],xx,351,59,59);
-        place(knobLabels[i],xx-23,406,105,17);
-    }
-    place(target,249,350,130,30);place(morph,395,350,281,29);
-    place(shape,249,386,125,29);place(sync,388,385,102,30);
-    place(root,249,386,91,28);place(scale,348,386,130,28);
-    place(tuneSource,492,386,131,28);
+    // Proper rows: no text, labels or dropdowns may overlap. Same layout
+    // regardless of current mode (including legacy states restored by a host).
+    place(target,148,359,164,25);
+    place(morph,356,359,319,25);
+    place(shape,148,397,164,24);
+    place(sync,331,397,108,24);
     updatePage();
 }
 void SkellFlangAudioProcessorEditor::updatePage() {
-    for(int i=0;i<3;++i)pages[i].setToggleState(i==page,juce::dontSendNotification);
+    mod.setButtonText(modulationOpen?"BACK":"MOD");
+    mod.setToggleState(modulationOpen,juce::dontSendNotification);
     for(int i=0;i<7;++i) {
-        const bool show=page==(i<3?0:1);
-        knobs[i].setVisible(show);knobLabels[i].setVisible(show);
+        knobs[size_t(i)].setVisible(!modulationOpen);
+        knobLabels[size_t(i)].setVisible(!modulationOpen);
     }
-    const bool motion=page==2;
-    target.setVisible(motion);morph.setVisible(motion);
-    shape.setVisible(motion&&shownMode!=5);
-    sync.setVisible(motion&&shownMode!=5);
-    root.setVisible(motion&&shownMode==5);
-    scale.setVisible(motion&&shownMode==5);
-    tuneSource.setVisible(motion&&shownMode==5);
+    target.setVisible(modulationOpen);
+    morph.setVisible(modulationOpen);
+    shape.setVisible(modulationOpen);
+    sync.setVisible(modulationOpen);
 }
 void SkellFlangAudioProcessorEditor::updateMode() {
     const auto* raw=processor.parameters.getRawParameterValue("mode");
-    const int mode=std::clamp(raw?int(raw->load()):0,0,5);
-    if(mode==shownMode)return;
-    shownMode=mode;
-    // Coordinated six-mode hues: restrained cyan/mint family rather than
-    // unrelated bright colours across an otherwise monochrome faceplate.
-    skin.accent=tints[mode];
+    const int selected=std::clamp(raw?int(raw->load(std::memory_order_relaxed)):0,0,7);
+    if(selected==shownMode)return;
+    shownMode=selected;
+    skin.accent=theme==0?tints[selected]:
+                theme==1?juce::Colour::fromRGB(120,241,113):
+                         juce::Colour::fromRGB(237,210,153);
     for(auto& slider:faders)slider.repaint();
     for(auto& slider:knobs)slider.repaint();
-    order.repaint();morph.repaint();
     for(auto& tab:tabs)tab.repaint();
-    for(auto& tab:pages)tab.repaint();
-    power.repaint();sync.repaint();
-    for(int i=0;i<6;++i)tabs[i].setToggleState(i==mode,juce::dontSendNotification);
+    for(auto* button:{&skull,&settings,&mod,&preset,&sync})button->repaint();
+    order.repaint();morph.repaint();
+    for(int i=0;i<5;++i)
+        tabs[size_t(i)].setToggleState(visibleModes[size_t(i)]==selected,
+                                       juce::dontSendNotification);
     for(int i=0;i<4;++i) {
-        label(knobLabels[3+i],knobNames[mode][i]);
-        // label() also sets its construction font; restore the current
-        // responsive size when a host changes MODE after compact resizing.
-        const float scale=getWidth()/float(baseW);
-        knobLabels[3+i].setFont(juce::Font(juce::jlimit(9.2f,12.5f,12.5f*scale)));
+        label(knobLabels[size_t(3+i)],knobNames[selected][i]);
+        knobLabels[size_t(3+i)].setFont(juce::Font(
+            juce::jlimit(9.f,11.f,11.f*getWidth()/float(baseW))));
     }
-    updatePage();
     repaint();
 }
-void SkellFlangAudioProcessorEditor::timerCallback(){
+void SkellFlangAudioProcessorEditor::timerCallback() {
     updateMode();
-    const juce::String name=processor.parameters.state.getProperty("presetName","INIT").toString();
+    const juce::String name=processor.parameters.state
+        .getProperty("presetName","INIT").toString();
     if(preset.getButtonText()!=name)preset.setButtonText(name);
-    if(const auto* enabled=processor.parameters.getRawParameterValue("power")) {
-        const juce::String caption=enabled->load(std::memory_order_relaxed)>.5f
-                                     ? "ACTIVE" : "BYPASS";
-        if(power.getButtonText()!=caption)power.setButtonText(caption);
+    if(const auto* current=processor.parameters.getRawParameterValue("morphTarget")) {
+        const int targetMode=std::clamp(int(current->load(std::memory_order_relaxed)),0,7);
+        if(target.getSelectedId()!=targetMode+1)
+            target.setSelectedId(targetMode+1,juce::dontSendNotification);
     }
-    const float scaleFactor=getWidth()/float(baseW);
-    repaint(juce::roundToInt(536*scaleFactor),juce::roundToInt(111*scaleFactor),
-            juce::roundToInt(171*scaleFactor),juce::roundToInt(221*scaleFactor));
-    repaint(0,juce::roundToInt(427*scaleFactor),getWidth(),
-            std::max(1,getHeight()-juce::roundToInt(427*scaleFactor)));
+    const float s=getWidth()/float(baseW);
+    repaint(juce::roundToInt(536*s),juce::roundToInt(111*s),
+            juce::roundToInt(171*s),juce::roundToInt(221*s));
+    repaint(0,juce::roundToInt(426*s),getWidth(),
+            std::max(1,getHeight()-juce::roundToInt(426*s)));
 }
 void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     const float s=getWidth()/float(baseW);
@@ -405,29 +540,24 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.fillRect(0,0,baseW,52);
     g.setColour(juce::Colour::fromRGB(30,55,52));
     g.drawLine(14.f,51.f,706.f,51.f,.85f);
-    // A fine accent under the active mode, rather than six glowing boxes.
-    if(shownMode>=0 && shownMode<6) {
-        g.setColour(tints[shownMode].withAlpha(.82f));
-        g.fillRoundedRectangle(28.f+115.f*shownMode,101.f,84.f,2.f,1.f);
+    // Distinct five-mode navigation; legacy project modes remain in the DSP
+    // but do not appear as selectable tabs.
+    for(int i=0;i<5;++i)if(shownMode==visibleModes[size_t(i)]) {
+        g.setColour(skin.accent.withAlpha(.90f));
+        g.fillRoundedRectangle(31.f+139.f*i,101.f,101.f,2.f,1.f);
+        break;
     }
 
     panelRect(g,14,111,516,221);
     panelRect(g,538,111,169,221);
     panelRect(g,14,342,693,82);
 
-    // The rib emblem is drawn, not a reused skull logo or a PNG.
+    // The clickable vector skull lives in the header; no duplicate ornament.
     const auto glow=skin.accent;
-    g.setColour(glow);
-    g.drawLine(82.f,18.f,82.f,38.f,1.8f);
-    for(int i=0;i<3;++i) {
-        const float yy=21.f+float(i)*5.f;
-        g.drawLine(82.f,yy,74.f,yy-2.f,1.25f);
-        g.drawLine(82.f,yy,90.f,yy-2.f,1.25f);
-    }
     g.setColour(bone);g.setFont(juce::Font(20.f,juce::Font::bold));
-    g.drawText("SKELL-FLANG",100,8,220,29,juce::Justification::centredLeft);
+    g.drawText("SKELL-FLANG",74,8,245,29,juce::Justification::centredLeft);
     g.setColour(glow.withAlpha(.9f));g.setFont(juce::Font(10.5f));
-    g.drawText("BEND THE BONES  /  MODULATION ENGINE",102,34,225,12,
+    g.drawText("BEND THE BONES  /  MODULATION ENGINE",76,34,244,12,
                juce::Justification::centredLeft);
 
     g.setColour(muted);g.setFont(juce::Font(10.5f));
@@ -481,7 +611,7 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.setColour(muted);g.setFont(juce::Font(10.5f));
     const juce::String annotation=shownMode==5
         ? ("PITCH  "+juce::String(processor.meters.pitch.load(std::memory_order_relaxed),1)+" Hz")
-        : ("MODE  /  "+juce::String(modes[std::clamp(shownMode,0,5)]));
+        : ("MODE  /  "+juce::String(modes[std::clamp(shownMode,0,7)]));
     g.drawText(annotation,554,274,142,16,juce::Justification::left);
     for(int ch=0;ch<2;++ch) {
         const float peak=std::clamp(processor.meters.peaks[ch].load(std::memory_order_relaxed),0.f,1.f);
@@ -495,14 +625,26 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
         if(peak>0.f)g.fillRoundedRectangle(569.f,y,121.f*peak,5.f,2.f);
     }
 
-    g.setColour(muted);g.setFont(juce::Font(10.5f));
-    const char* pageCaption=page==0?"MIX / DRIVE":page==1?"CHARACTER":"MOD / CLOCK";
-    g.drawText(pageCaption,123,357,108,16,juce::Justification::centredLeft);
-    if(page==2) {
-        g.setColour(glow.withAlpha(.8f));g.setFont(juce::Font(10.f));
-        g.drawText("MORPH",247,337,85,13,juce::Justification::left);
-        g.drawText(shownMode==5?"SCALE LOCK":"LFO SHAPE",247,374,122,12,
-                   juce::Justification::left);
+    g.setColour(muted);
+    if(!modulationOpen) {
+        g.setFont(juce::Font(11.f,juce::Font::bold));
+        g.drawFittedText("03 / TONE",27,357,84,20,
+                         juce::Justification::centredLeft,1);
+        g.setFont(juce::Font(9.6f));
+        g.drawFittedText("SOUND SHAPE",27,383,90,18,
+                         juce::Justification::centredLeft,1);
+    } else {
+        g.setFont(juce::Font(11.f,juce::Font::bold));
+        g.drawFittedText("03 / MOD",27,359,96,18,
+                         juce::Justification::centredLeft,1);
+        g.setFont(juce::Font(9.5f));
+        g.drawFittedText("MORPH + LFO",27,388,99,16,
+                         juce::Justification::centredLeft,1);
+        g.setColour(glow.withAlpha(.92f));
+        g.drawText("DESTINATION",148,345,142,12,juce::Justification::centredLeft);
+        g.drawText("MORPH",356,345,110,12,juce::Justification::centredLeft);
+        g.drawText("WAVEFORM",148,384,142,11,juce::Justification::centredLeft);
+        g.drawText("TEMPO",331,384,100,11,juce::Justification::centredLeft);
     }
 
     // Footer remains legible when the editor is scaled to compact mode.
@@ -510,7 +652,7 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.drawText("LIVE  /  "+juce::String(processor.meters.bpm.load(std::memory_order_relaxed),1)+
                " BPM   /   PDC "+juce::String(processor.getLatencySamples())+
                "   /   CPU "+juce::String(processor.meters.cpu.load(std::memory_order_relaxed),1)+
-               "%   /   "+juce::String(modes[std::clamp(shownMode,0,5)]),
+               "%   /   "+juce::String(modes[std::clamp(shownMode,0,7)]),
                20,430,685,18,juce::Justification::centredLeft);
     g.restoreState();
 }

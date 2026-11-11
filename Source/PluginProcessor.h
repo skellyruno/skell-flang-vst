@@ -49,7 +49,7 @@ private:
     skellflang::EngineBank engines;
     skellflang::PitchTracker pitchTracker;
     skellflang::EqualPowerBlend crossfade;
-    std::array<skellflang::ControlSmoother,6> controlSmoothers;
+    std::array<skellflang::ControlSmoother,8> controlSmoothers;
     juce::SmoothedValue<float,juce::ValueSmoothingTypes::Linear> dryMix,wetMix,outputMix,powerMix,morphMix,crossMix;
     int active=0,previous=0,remaining=0,transition=1;
     float holdL=0,holdR=0,cpuDisplay=0.f;

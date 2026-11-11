@@ -34,7 +34,7 @@ int main(){
     clock.speed=.1f;const double slow=lfoFrequency(clock);
     clock.speed=.95f;REQUIRE(lfoFrequency(clock)>slow*8.);
     clock.sync=false;clock.speed=.25f;
-    REQUIRE(std::abs(lfoFrequency(clock)-3.02)<1.e-5);
+    REQUIRE(std::abs(lfoFrequency(clock)-.04*std::exp2(1.75))<1.e-7);
     EqualPowerBlend blend;blend.prepare();
     const auto low=blend.gains(0.f),high=blend.gains(1.f);
     REQUIRE(low[0]==1.f&&low[1]==0.f);
@@ -48,7 +48,7 @@ int main(){
     std::cout<<"f0="<<pitch.pitch()<<" confidence="<<pitch.conf()<<"\n";
     REQUIRE(pitch.pitch()>200&&pitch.pitch()<240);
     REQUIRE(pitch.conf()>.75);
-    for(int m=0;m<6;++m){
+    for(int m=0;m<8;++m){
         EngineBank bank;bank.prepare(48000);
         Controls p;p.mode=m;p.order=8;p.depth=.95f;p.delay=.8f;p.feedback=.9f;
         p.confidence=.96f;p.pitch=220.f;p.extras[0]=.7f;p.extras[1]=.8f;
@@ -204,6 +204,21 @@ int main(){
             if(i>3500)difference+=std::abs(a[0]-b[0]);
         }
         REQUIRE(difference>1.);
+    }
+    // New ensemble modes must remain audible and different from their parents.
+    for(const int mode : {6,7}) {
+        EngineBank bank;bank.prepare(48000);
+        Controls p;p.order=5;p.depth=.62f;p.speed=.45f;p.delay=.46f;
+        p.feedback=.18f;p.spread=.66f;
+        double energy=0.;
+        for(int i=0;i<48000;++i) {
+            const float x=float(.25*std::sin(2*pi*220.*i/48000.));
+            const auto output=bank.process(mode,x,-x,p);
+            REQUIRE(std::isfinite(output[0]) && std::isfinite(output[1]));
+            REQUIRE(std::abs(output[0])<=1.001f && std::abs(output[1])<=1.001f);
+            energy+=output[0]*output[0]+output[1]*output[1];
+        }
+        REQUIRE(energy>1.);
     }
     // Silence must clear pitch confidence; don't tune resonators to stale notes.
     PitchTracker gated;gated.prepare(48000);

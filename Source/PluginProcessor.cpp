@@ -21,8 +21,8 @@ float curve(float v) {return v<.002f?0.f:std::pow(std::clamp(v,0.f,1.f),1.5f);}
 State::ParameterLayout SkellFlangAudioProcessor::createLayout(){
     State::ParameterLayout p;
     boolean(p,"power","Power",true);
-    choice(p,"mode","Mode",{"Chorus","Flanger","Vowel","Reverse","Orbit","Tuned"});
-    choice(p,"morphTarget","Morph Target",{"Chorus","Flanger","Vowel","Reverse","Orbit","Tuned"},1);
+    choice(p,"mode","Mode",{"Chorus","Flanger","Vowel (legacy)","Reverse (legacy)","Orbit","Tuned (legacy)","Flangus","Dimension"});
+    choice(p,"morphTarget","Morph Target",{"Chorus","Flanger","Vowel (legacy)","Reverse (legacy)","Orbit","Tuned (legacy)","Flangus","Dimension"},1);
     parameter(p,"morph","Morph",0);
     p.add(std::make_unique<juce::AudioParameterInt>(PID{"order",1},"Order",1,8,3));
     parameter(p,"depth","Depth",.5f);parameter(p,"speed","Speed",.3f);
@@ -64,7 +64,7 @@ void SkellFlangAudioProcessor::prepareToPlay(double sr,int) {
     powerMix.setCurrentAndTargetValue(raw("power")>.5f?1.f:0.f);
     morphMix.setCurrentAndTargetValue(std::clamp(raw("morph"),0.f,1.f));
     crossMix.setCurrentAndTargetValue(std::clamp(raw("cross"),0.f,1.f));
-    active=std::clamp(int(raw("mode")),0,5);previous=active;remaining=0;
+    active=std::clamp(int(raw("mode")),0,7);previous=active;remaining=0;
     transition=std::max(1,int(rate*.04));
     holdL=holdR=cpuDisplay=0.f;
     pitchFromSide=false;
@@ -100,9 +100,9 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
     if(auto* ph=getPlayHead())if(auto pos=ph->getPosition())
         if(auto bpm=pos->getBpm())if(std::isfinite(*bpm)&&*bpm>=20&&*bpm<=400)
             meters.bpm.store(float(*bpm),std::memory_order_relaxed);
-    const int selected=std::clamp(int(raw("mode")),0,5);
+    const int selected=std::clamp(int(raw("mode")),0,7);
     if(selected!=active){previous=active;active=selected;remaining=transition;}
-    const int target=std::clamp(int(raw("morphTarget")),0,5);
+    const int target=std::clamp(int(raw("morphTarget")),0,7);
     const auto primary=settings(active), secondary=settings(target), former=settings(previous);
     dryMix.setTargetValue(curve(raw("dry")));wetMix.setTargetValue(curve(raw("wet")));
     outputMix.setTargetValue(juce::Decibels::decibelsToGain(raw("output")));
@@ -209,37 +209,47 @@ void SkellFlangAudioProcessor::setStateInformation(const void* ptr,int size) {
     }
 }
 void SkellFlangAudioProcessor::applyFactoryPreset(int number) {
-    struct Preset {const char* name;int mode,voices;float depth,speed,delay,wet,feedback;};
-    static constexpr Preset library[]{
-        {"INIT",0,3,.4f,.3f,.5f,.35f,0.f},
-        {"Lush Choir Bus",0,6,.55f,.14f,.5f,.7f,.04f},
-        {"Vocal Double Wash",0,4,.3f,.36f,.45f,.62f,.06f},
-        {"Crypt Ensemble",0,8,.72f,.09f,.7f,.81f,.15f},
-        {"Jet Skeleton",1,4,.81f,.59f,.15f,.9f,.73f},
-        {"Deep Jet Whoosh",1,3,.85f,.1f,.65f,.95f,-.4f},
-        {"Grave Ring",1,6,.92f,.78f,.12f,.82f,.82f},
-        {"Talking Bones",2,5,.66f,.21f,.46f,.8f,.35f},
-        {"Ghost Choir Sweep",2,5,.81f,.12f,.71f,.91f,.24f},
-        {"Wah Reaper",2,3,.7f,.6f,.28f,.85f,.61f},
-        {"Bloom Backwards",3,4,.31f,.32f,.55f,.96f,.1f},
-        {"Spectral Tide",3,6,.54f,.4f,.75f,1.f,.22f},
-        {"Rage Swell",3,8,.73f,.61f,.87f,1.f,.4f},
-        {"Skull Carousel",4,4,.6f,.31f,.54f,.87f,.16f},
-        {"Haunted Merry-Go-Round",4,6,.76f,.58f,.7f,.91f,.23f},
-        {"Slow Moon",4,3,.28f,.06f,.47f,.76f,.05f},
-        {"Key-Locked Jet",5,3,.66f,.41f,.47f,.77f,.64f},
-        {"Pitch Ghost",5,2,.33f,.19f,.68f,.94f,.43f},
-        {"Harmonic Chain",5,8,.59f,.27f,.52f,.95f,.8f}
+    // Distinct, gain-aware presets: all macro controls are loaded together.
+    // Parameter IDs and legacy mode indices are intentionally stable.
+    struct Preset {
+        const char* name;
+        int mode, voices;
+        float depth,speed,delay,spread,cross,dry,wet,feedback,tone;
+        float extras[4];
     };
-    const auto& p=library[std::clamp(number,0,18)];
-    struct Change{const char* id;float value;};
-    const Change edits[]{
-        {"mode",float(p.mode)},{"order",float(p.voices)},{"depth",p.depth},
-        {"speed",p.speed},{"delay",p.delay},{"wet",p.wet},{"feedback",p.feedback}
+    static constexpr Preset bank[]{
+        {"INIT",             0,3,.38f,.39f,.42f,.50f,.08f,.78f,.48f,.05f,.78f,{.50f,.55f,.55f,.45f}},
+        {"Velvet Chorus",    0,4,.48f,.36f,.46f,.72f,.06f,.74f,.60f,.05f,.80f,{.60f,.82f,.64f,.62f}},
+        {"Wide Vocal Double",0,2,.30f,.47f,.64f,.86f,.12f,.83f,.48f,.02f,.87f,{.62f,1.f,.74f,.45f}},
+        {"Neon Ensemble",    0,8,.70f,.43f,.40f,.85f,.09f,.69f,.70f,.13f,.76f,{.90f,.94f,.73f,.75f}},
+        {"Satin Flanger",    1,2,.38f,.43f,.33f,.40f,.06f,.77f,.56f,.25f,.80f,{.56f,.55f,.43f,.05f}},
+        {"Jet Sweep",        1,4,.78f,.57f,.18f,.66f,.08f,.68f,.73f,.62f,.65f,{.88f,.68f,.20f,.08f}},
+        {"Polarity Comb",    1,3,.64f,.31f,.12f,.80f,.38f,.74f,.68f,-.51f,.60f,{.76f,.22f,.23f,.04f}},
+        {"Flangus Glow",     6,5,.55f,.37f,.35f,.67f,.10f,.72f,.64f,.21f,.77f,{.68f,.65f,.43f,.67f}},
+        {"Flangus Motion",   6,7,.68f,.53f,.27f,.88f,.14f,.71f,.74f,.26f,.78f,{.78f,.82f,.61f,.63f}},
+        {"Flangus Jet",      6,8,.82f,.58f,.16f,.92f,.18f,.66f,.78f,.57f,.60f,{.94f,.90f,.88f,.30f}},
+        {"Orbit Halo",       4,4,.60f,.31f,.54f,.61f,.20f,.72f,.78f,.16f,.67f,{.58f,.40f,.68f,.56f}},
+        {"Orbit Carousel",   4,6,.74f,.51f,.60f,.79f,.25f,.69f,.84f,.20f,.61f,{.82f,.62f,.77f,.67f}},
+        {"Orbit Pulse",      4,3,.36f,.68f,.37f,.45f,.35f,.76f,.68f,.07f,.81f,{.42f,.18f,.53f,.92f}},
+        {"Dimension Air",    7,3,.31f,.32f,.52f,.80f,.08f,.77f,.62f,.01f,.89f,{.62f,.78f,.93f,.79f}},
+        {"Dimension Doubler",7,4,.43f,.50f,.45f,.86f,.10f,.73f,.72f,.04f,.83f,{.73f,.91f,.80f,.85f}},
+        {"Dimension Width",  7,6,.54f,.34f,.65f,.98f,.12f,.70f,.75f,.10f,.76f,{.85f,1.f,.79f,.99f}}
     };
-    for(const auto& change:edits)if(auto* v=parameters.getParameter(change.id)) {
-        v->beginChangeGesture();v->setValueNotifyingHost(v->convertTo0to1(change.value));
-        v->endChangeGesture();
+    const auto& p=bank[std::clamp(number,0,int(std::size(bank))-1)];
+    struct Edit { const char* id; float value; };
+    const Edit edits[]{
+        {"mode",float(p.mode)},{"order",float(p.voices)},
+        {"depth",p.depth},{"speed",p.speed},{"delay",p.delay},{"spread",p.spread},
+        {"cross",p.cross},{"dry",p.dry},{"wet",p.wet},{"feedback",p.feedback},
+        {"tone",p.tone},{"extra0",p.extras[0]},{"extra1",p.extras[1]},
+        {"extra2",p.extras[2]},{"extra3",p.extras[3]},
+        {"morph",0.f},{"morphTarget",float(p.mode==1?0:1)},{"lfoShape",0.f},
+        {"lfoSync",0.f},{"output",0.f},{"power",1.f}
+    };
+    for(const auto& edit:edits)if(auto* value=parameters.getParameter(edit.id)){
+        value->beginChangeGesture();
+        value->setValueNotifyingHost(value->convertTo0to1(edit.value));
+        value->endChangeGesture();
     }
     parameters.state.setProperty("presetName",p.name,nullptr);
 }

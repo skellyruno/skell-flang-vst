@@ -34,7 +34,7 @@ struct Controls {
 };
 // SPEED chooses tempo division. LFO SHAPE must affect waveform only, never rate.
 inline double lfoFrequency(const Controls& p) noexcept {
-    if(!p.sync)return .02+12.*bound(p.speed);
+    if(!p.sync)return .04*std::exp2(7.*double(bound(p.speed))); // .04–5.12 Hz; useful fine range for chorus
     constexpr double divisions[]{64.,32.,16.,8.,4.,2.,1.,.5,.25};
     const int index=std::clamp(int(bound(p.speed)*8.999f),0,8);
     const double bpm=std::clamp(std::isfinite(p.bpm)?p.bpm:120.,20.,400.);
@@ -242,7 +242,7 @@ public:
         grains={};phase.fill(0);voicePhase.fill(0);tunedDelay.fill(0);samples.fill(0);grainClock=0;rng=0xFA11B00Du;
     }
     std::array<float,2> process(int which,float l,float r,const Controls& p) noexcept {
-        const int mode=std::clamp(which,0,5);
+        const int mode=std::clamp(which,0,7);
         const int n=std::clamp(p.order,1,8);
         const double hz=lfoFrequency(p);
         const double step=std::min((mode==4?hz*(.5+.9*bound(p.extras[3])):hz)/sr,.2);
@@ -334,31 +334,71 @@ public:
         for(int i=0;i<n;++i) {
             const float m=mod(double(i)/n*bound(p.spread));
             auto& v=voices[size_t(mode)][size_t(i)];
-            if(mode==0) {
-                const float location=n>1?float(i)*2/(n-1)-1.f:0.f;
-                voicePhase[i]+=step*(1.+.1*bound(p.extras[0])*location);
-                if(voicePhase[i]>=1.)voicePhase[i]-=1.;
-                const float detuned=float(std::sin(2*pi*(voicePhase[i]+double(i)/n*p.spread)));
-                const float ensemble=float(std::sin(2*pi*(cycle*.37+double(i)/n)))*p.extras[3]*.35f;
-                const double dL=sr*.001*std::max(2.f,8.f+18.f*p.delay+5.f*p.depth*(detuned+ensemble));
-                const double dR=dL+sr*.0004*p.spread;
-                const float pan=location*p.spread*(.4f+.6f*p.extras[1]);
-                const float warm=.04f+.78f*(1.f-bound(p.extras[2]));
+            if(mode==0) { // CHORUS: decorrelated dual-channel multi-voice detuning
+                const float location=n>1 ? float(i)*2.f/float(n-1)-1.f : 0.f;
+                voicePhase[size_t(i)]+=step*(1.+.055*bound(p.extras[0])*location);
+                if(voicePhase[size_t(i)]>=1.)voicePhase[size_t(i)]-=1.;
+                const double phaseOffset=double(i)*.173;
+                const double leftWave=std::sin(2*pi*(voicePhase[size_t(i)]+phaseOffset));
+                const double rightWave=std::sin(2*pi*(voicePhase[size_t(i)]+phaseOffset+
+                                  .14+.28*bound(p.extras[1])));
+                const double baseMs=9.+15.*bound(p.delay);
+                const double depthMs=(.5+3.2*bound(p.depth))*(.60+.40*bound(p.extras[0]));
+                const double spreadMs=1.8*bound(p.spread)*location;
+                const double dL=sr*.001*(baseMs+depthMs*leftWave+spreadMs);
+                const double dR=sr*.001*(baseMs+depthMs*rightWave-spreadMs);
                 const float dl=v.tap(0,l,dL,p),dr=v.tap(1,r,dR,p);
-                v.air[0]+=warm*(dl-v.air[0]);v.air[1]+=warm*(dr-v.air[1]);
-                outL+=v.air[0]*(1-.5f*pan);
-                outR+=v.air[1]*(1+.5f*pan);
-            } else if(mode==1) {
+                const float smoothing=.30f+.60f*(1.f-bound(p.extras[2]));
+                v.air[0]+=smoothing*(dl-v.air[0]);
+                v.air[1]+=smoothing*(dr-v.air[1]);
+                const float pan=location*bound(p.spread)*bound(p.extras[1])*.28f;
+                outL+=v.air[0]*(1.f-pan);
+                outR+=v.air[1]*(1.f+pan);
+            } else if(mode==1) { // FLANGER: short comb with controllable stereo phase
                 const float env=std::min(1.f,.5f*(std::abs(l)+std::abs(r)));
-                // SWEEP RANGE (extra0) now controls modulation travel. Neutral at .5.
-                const float travel=.3f+1.4f*bound(p.extras[0]);
-                const float ms=std::max(.12f,.15f+7.5f*p.delay+
-                    3.5f*p.depth*m*travel+2.f*p.extras[2]+2.5f*env*p.extras[3]);
-                const double d=sr*.001*ms;
+                const float travel=.25f+1.45f*bound(p.extras[0]);
+                const float phaseOffset=float(i)*bound(p.spread)/float(n);
+                const float a=mod(phaseOffset);
+                const float b=mod(phaseOffset+.04f+.35f*bound(p.spread));
+                const float baseMs=.16f+3.4f*bound(p.delay)+1.8f*bound(p.extras[2]);
+                const float sweepMs=(.12f+3.9f*bound(p.depth))*travel;
+                const float follow=1.8f*env*bound(p.extras[3]);
+                const double dL=sr*.001*(baseMs+.5f*sweepMs*(1.f+a)+follow);
+                const double dR=sr*.001*(baseMs+.5f*sweepMs*(1.f+b)+follow);
                 Controls coloured=p;
-                coloured.tone=bound(p.tone+(p.extras[1]-.5f)*.6f);
-                outL+=v.tap(0,l,d,coloured);
-                outR+=v.tap(1,r,d+sr*.0003*p.spread,coloured);
+                coloured.tone=bound(p.tone+(p.extras[1]-.5f)*.40f);
+                outL+=v.tap(0,l,dL,coloured);
+                outR+=v.tap(1,r,dR,coloured);
+            } else if(mode==6) { // FLANGUS: two motion rates over an ensemble of comb delays
+                const float location=n>1 ? float(i)/float(n-1) : .5f;
+                const double offset=double(i)*bound(p.spread)/std::max(1,n);
+                const double slowL=std::sin(2*pi*(cycle+offset));
+                const double slowR=std::sin(2*pi*(cycle+offset+.15+.18*bound(p.extras[1])));
+                const double fastL=std::sin(2*pi*(cycle*1.71+offset*.71));
+                const double fastR=std::sin(2*pi*(cycle*1.71+offset*.71+.19));
+                const double base=3.+12.*bound(p.delay)+4.*location*bound(p.spread);
+                const double travel=(.5+4.*bound(p.depth))*(.45+.55*bound(p.extras[0]));
+                const double jet=(.2+2.2*bound(p.extras[2]))*bound(p.depth);
+                Controls coloured=p;
+                coloured.tone=bound(p.tone+.24f*(bound(p.extras[3])-.5f));
+                outL+=v.tap(0,l,sr*.001*(base+travel*slowL+jet*fastL),coloured);
+                outR+=v.tap(1,r,sr*.001*(base+travel*slowR+jet*fastR),coloured);
+            } else if(mode==7) { // DIMENSION: slow short-delay stereo doubling
+                const float location=n>1 ? float(i)/float(n-1) : .5f;
+                const double offset=double(i)/double(n);
+                const double waveL=std::sin(2*pi*(cycle*.52+offset));
+                const double waveR=std::sin(2*pi*(cycle*.58+offset+.33));
+                const double base=11.+18.*bound(p.delay);
+                const double motion=(.18+1.8*bound(p.depth))*(.6+.4*bound(p.extras[0]));
+                const double separation=5.*bound(p.spread)*location*bound(p.extras[1]);
+                const float dl=v.tap(0,l,sr*.001*(base+motion*waveL+separation),p);
+                const float dr=v.tap(1,r,sr*.001*(base+motion*waveR-separation),p);
+                const float tone=.12f+.75f*bound(p.extras[2]);
+                v.air[0]+=tone*(dl-v.air[0]);
+                v.air[1]+=tone*(dr-v.air[1]);
+                const float pan=(location-.5f)*bound(p.extras[3])*.55f;
+                outL+=v.air[0]*(1.f-pan);
+                outR+=v.air[1]*(1.f+pan);
             } else { // ORBIT: amplitude / ITD / air-distance approximation.
                 const float angle=float(2*pi*(cycle+double(i)/n*p.spread));
                 const float x=std::cos(angle),y=std::sin(angle)*(1.f-.6f*bound(p.extras[1]));
@@ -418,7 +458,7 @@ private:
         return {saturate(a),saturate(b)};
     }
     double sr=48000;
-    std::array<std::array<Voice,8>,6> voices{};
+    std::array<std::array<Voice,8>,8> voices{};
     std::array<Delay,2> reverse{};
     std::array<std::array<Biquad,5>,2> formants{};
     std::array<Grain,32> grains{};
@@ -426,9 +466,9 @@ private:
     std::array<double,8> keyFrequencies{};
     double cachedSpread=-1.,tunedRatio=1.;
     int keyCacheRoot=-1,keyCacheScale=-1;
-    std::array<double,6> phase{};
+    std::array<double,8> phase{};
     std::array<double,8> voicePhase{},tunedDelay{};
-    std::array<unsigned,6> samples{};
+    std::array<unsigned,8> samples{};
     int grainClock=0;uint32_t rng=0xFA11B00Du;
 };
 } // namespace skellflang
