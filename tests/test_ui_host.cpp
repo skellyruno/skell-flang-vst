@@ -65,6 +65,8 @@ int main(){
         auto* wave=dynamic_cast<juce::ComboBox*>(editor->findChildWithID("lfo-wave"));
         auto* sync=byID(*editor,"lfo-sync");
         verify(morph&&dest&&wave&&sync,"Missing permanently integrated morph/LFO controls");
+        verify(dest->getSelectedId()==2,
+               "Initial morph target must be populated without waiting for the UI timer");
         verify(morph->isVisible()&&dest->isVisible()&&wave->isVisible()&&sync->isVisible(),
                "Morph and LFO controls must always be visible");
         click(skull,"Skull theme cycle is not clickable");
@@ -123,6 +125,8 @@ int main(){
                 ++count;
             }
             if(count<25)errors.add("Too few visible controls");
+            if(dest->getSelectedId()==0)
+                errors.add("Morph destination is blank in a current-mode screenshot");
             // All interactive controls must have independent, non-overlapping
             // mouse hit areas, even at the compact 540 px editor width.
             for(int i=0;i<editor->getNumChildComponents();++i) {

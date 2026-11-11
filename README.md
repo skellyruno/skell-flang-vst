@@ -93,3 +93,7 @@ The shared SkellCore renderer generates 40 real-editor screenshot scenes (5 effe
 - Chorus **ENSEMBLE** macro now genuinely affects a slower secondary detune motion (previously a displayed but inert control); Flangus imposes a 1.2 ms minimum stereo delay at aggressive jet settings to avoid near-zero comb spikes. Orbit's DSP was not edited.
 - Existing host parameter IDs and legacy effect indices remain compatible. The current screenshot renderer covers 5 modes, 2 morph states and 4 editor widths (40 real JUCE scenes); layout tests reject intersecting interactive hit areas.
 - Actual listening in FL Studio is still required for subjective tonal acceptance; automatic tests cannot prove aesthetic sound quality.
+
+## v0.8.1 — initial morph selection
+
+The inline MORPH TARGET combo synchronizes its saved parameter **before the first editor paint** and tracks preset/host changes even when the active mode stays the same. Previously the selected target could show as blank in actual JUCE screenshots until a UI timer tick. A legacy target restored from an older project displays a named placeholder instead of silently switching to a current mode. The UI smoke test checks its initial ID and visible destination across all 40 scenes.

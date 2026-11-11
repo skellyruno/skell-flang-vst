@@ -360,6 +360,14 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
     // The host retains all eight original choice positions. The compact UI
     // intentionally offers only the five current effects, with direct IDs.
     for(const auto mode:visibleModes)target.addItem(modes[mode],mode+1);
+    // A non-attached ComboBox must explicitly synchronize its first value
+    // before the initial paint; otherwise hosts see a blank destination.
+    target.setTextWhenNothingSelected("LEGACY TARGET");
+    if(const auto* current=p.parameters.getRawParameterValue("morphTarget")) {
+        const int wanted=std::clamp(int(current->load(std::memory_order_relaxed)),0,7);
+        if(std::find(visibleModes.begin(),visibleModes.end(),wanted)!=visibleModes.end())
+            target.setSelectedId(wanted+1,juce::dontSendNotification);
+    }
     target.onChange=[this]{
         const int selected=target.getSelectedId()-1;
         if(selected>=0)
@@ -520,6 +528,15 @@ void SkellFlangAudioProcessorEditor::resized() {
 void SkellFlangAudioProcessorEditor::updateMode() {
     const auto* raw=processor.parameters.getRawParameterValue("mode");
     const int selected=std::clamp(raw?int(raw->load(std::memory_order_relaxed)):0,0,7);
+    // Also refresh MORPH TARGET when presets or host automation change it,
+    // including cases where the active effect tab has not changed.
+    if(const auto* current=processor.parameters.getRawParameterValue("morphTarget")) {
+        const int wanted=std::clamp(int(current->load(std::memory_order_relaxed)),0,7);
+        const int id=std::find(visibleModes.begin(),visibleModes.end(),wanted)
+                     !=visibleModes.end()?wanted+1:0;
+        if(target.getSelectedId()!=id)
+            target.setSelectedId(id,juce::dontSendNotification);
+    }
     if(selected==shownMode)return;
     shownMode=selected;
     // Every effect always retains its own color identity. The skull cycles
@@ -555,11 +572,6 @@ void SkellFlangAudioProcessorEditor::timerCallback() {
     const juce::String name=processor.parameters.state
         .getProperty("presetName","INIT").toString();
     if(preset.getButtonText()!=name)preset.setButtonText(name);
-    if(const auto* current=processor.parameters.getRawParameterValue("morphTarget")) {
-        const int targetMode=std::clamp(int(current->load(std::memory_order_relaxed)),0,7);
-        if(target.getSelectedId()!=targetMode+1)
-            target.setSelectedId(targetMode+1,juce::dontSendNotification);
-    }
     const float s=getWidth()/float(baseW);
     repaint(0,juce::roundToInt(50*s),getWidth(),juce::roundToInt(15*s));
     repaint(juce::roundToInt(536*s),juce::roundToInt(114*s),
