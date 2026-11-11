@@ -3,9 +3,7 @@
 #include <cmath>
 
 namespace {
-constexpr int baseW=720,baseH=450;
-const juce::Colour dark=juce::Colour::fromRGB(7,12,14);
-const juce::Colour panel=juce::Colour::fromRGB(17,26,29);
+constexpr int baseW=720,baseH=500;
 const juce::Colour bone=juce::Colour::fromRGB(226,239,230);
 const juce::Colour muted=juce::Colour::fromRGB(143,169,164);
 const char* modes[]{"CHORUS","FLANGER","VOWEL (LEGACY)","REVERSE (LEGACY)",
@@ -53,10 +51,44 @@ void label(juce::Label& text,const juce::String& content){
     text.setFont(juce::Font(12.5f));
     text.setColour(juce::Label::textColourId,muted);
 }
-void panelRect(juce::Graphics&g,float x,float y,float w,float h){
-    g.setColour(panel);g.fillRoundedRectangle(x,y,w,h,9.f);
-    g.setColour(juce::Colour::fromRGB(33,54,51));g.drawRoundedRectangle(x,y,w,h,9.f,.8f);
+void panelRect(juce::Graphics&g,float x,float y,float w,float h,
+               const FlangLookAndFeel& skin){
+    g.setColour(skin.surface);
+    g.fillRoundedRectangle(x,y,w,h,9.f);
+    g.setColour(skin.outline);
+    g.drawRoundedRectangle(x,y,w,h,9.f,.9f);
 }
+}
+
+void FlangLookAndFeel::setTheme(int style) {
+    themeIndex=juce::jlimit(0,2,style);
+    if(themeIndex==0) { // midnight matte
+        background=juce::Colour::fromRGB(7,12,14);
+        surface=juce::Colour::fromRGB(17,26,29);
+        foreground=juce::Colour::fromRGB(226,239,230);
+        secondary=juce::Colour::fromRGB(143,169,164);
+        outline=juce::Colour::fromRGB(35,60,56);
+        recess=juce::Colour::fromRGB(8,17,19);
+    } else if(themeIndex==1) { // graphite metal
+        background=juce::Colour::fromRGB(27,33,40);
+        surface=juce::Colour::fromRGB(40,48,57);
+        foreground=juce::Colour::fromRGB(240,241,236);
+        secondary=juce::Colour::fromRGB(175,185,185);
+        outline=juce::Colour::fromRGB(76,92,102);
+        recess=juce::Colour::fromRGB(22,31,38);
+    } else { // warm bone / daylight
+        background=juce::Colour::fromRGB(225,221,208);
+        surface=juce::Colour::fromRGB(245,242,230);
+        foreground=juce::Colour::fromRGB(35,42,42);
+        secondary=juce::Colour::fromRGB(88,103,102);
+        outline=juce::Colour::fromRGB(152,162,150);
+        recess=juce::Colour::fromRGB(205,206,194);
+    }
+    setColour(juce::PopupMenu::backgroundColourId,surface);
+    setColour(juce::PopupMenu::textColourId,foreground);
+    setColour(juce::PopupMenu::headerTextColourId,foreground);
+    setColour(juce::PopupMenu::highlightedBackgroundColourId,accent.withAlpha(.23f));
+    setColour(juce::PopupMenu::highlightedTextColourId,foreground);
 }
 
 void FlangLookAndFeel::drawLinearSlider(juce::Graphics& g,int x,int y,int w,int h,
@@ -68,13 +100,13 @@ void FlangLookAndFeel::drawLinearSlider(juce::Graphics& g,int x,int y,int w,int 
         const float start=float(x)+11.f;
         const float finish=float(x+w)-11.f;
         const float thumbX=std::clamp(pos,start,finish);
-        g.setColour(juce::Colour::fromRGB(7,17,19));
+        g.setColour(recess);
         g.fillRoundedRectangle(start,centreY-3.f,finish-start,6.f,3.f);
-        g.setColour(juce::Colour::fromRGB(47,75,69));
+        g.setColour(outline);
         g.drawRoundedRectangle(start,centreY-3.f,finish-start,6.f,3.f,.8f);
         for(int i=0;i<=8;++i) {
             const float px=start+(finish-start)*float(i)/8.f;
-            g.setColour(juce::Colour::fromRGB(99,139,127).withAlpha(.65f));
+            g.setColour(secondary.withAlpha(.50f));
             g.drawLine(px,centreY-8.f,px,centreY-6.f,.75f);
         }
         if(thumbX>start) {
@@ -82,32 +114,51 @@ void FlangLookAndFeel::drawLinearSlider(juce::Graphics& g,int x,int y,int w,int 
             g.fillRoundedRectangle(start,centreY-2.f,thumbX-start,4.f,2.f);
         }
         const auto handle=juce::Rectangle<float>(thumbX-7.f,centreY-9.f,14.f,18.f);
-        g.setColour(juce::Colour::fromRGB(24,44,44));
+        g.setColour(recess.brighter(.18f));
         g.fillRoundedRectangle(handle,3.6f);
         g.setColour(accent.withAlpha(.93f));
         g.drawRoundedRectangle(handle,3.6f,1.1f);
-        g.setColour(juce::Colour::fromRGB(206,232,220));
+        g.setColour(foreground);
         g.drawLine(thumbX,centreY-4.f,thumbX,centreY+4.f,1.4f);
         return;
     }
-    const auto well=juce::Rectangle<float>(float(x+4),float(y+2),float(w-8),float(h-4));
-    const float mid=well.getCentreX();
-    g.setColour(juce::Colour::fromRGB(8,17,20));g.fillRoundedRectangle(well,5.f);
-    g.setColour(juce::Colour::fromRGB(35,55,55));g.drawRoundedRectangle(well,5.f,.8f);
-    for(int k=0;k<13;++k) {
-        const float yy=well.getY()+12.f+k*(well.getHeight()-24.f)/12.f;
-        g.setColour(juce::Colour::fromRGB(59,86,83).withAlpha(.45f));
-        g.drawLine(mid-10.f,yy,mid+10.f,yy,.7f);
+    // FL-style precision fader: thin central track, compact metal cap and
+    // understated side calibration. No giant rounded black rectangle.
+    const float cx=float(x)+float(w)*.5f;
+    const float top=float(y)+8.f;
+    const float bottom=float(y+h)-8.f;
+    const float trackWidth=juce::jlimit(10.f,17.f,float(w)*.34f);
+    g.setColour(recess);
+    g.fillRoundedRectangle(cx-trackWidth*.5f,top,trackWidth,bottom-top,4.f);
+    g.setColour(outline.withAlpha(.83f));
+    g.drawRoundedRectangle(cx-trackWidth*.5f,top,trackWidth,bottom-top,4.f,.75f);
+    // Ten small ticks leave breathing room beside the track.
+    for(int k=0;k<=10;++k) {
+        const float yy=top+4.f+float(k)*(bottom-top-8.f)/10.f;
+        const float len=k%5==0?6.f:3.5f;
+        g.setColour(secondary.withAlpha(k%5==0?.47f:.26f));
+        g.drawLine(cx-trackWidth*.5f-3.f-len,yy,cx-trackWidth*.5f-3.f,yy,.72f);
+        g.drawLine(cx+trackWidth*.5f+3.f,yy,cx+trackWidth*.5f+3.f+len,yy,.72f);
     }
-    const float capY=std::clamp(pos,well.getY()+11.f,well.getBottom()-11.f);
-    g.setColour(accent.withAlpha(.48f));g.drawLine(mid,well.getBottom()-10.f,mid,capY,2.f);
-    const float half=std::min(16.f,well.getWidth()*.45f);
-    const juce::Rectangle<float> thumb(mid-half,capY-9.f,half*2.f,18.f);
-    g.setColour(juce::Colour::fromRGB(30,49,52));g.fillRoundedRectangle(thumb,4.f);
-    g.setColour(juce::Colour::fromRGB(117,160,151));g.drawRoundedRectangle(thumb,4.f,1.f);
-    g.setColour(juce::Colour::fromRGB(197,217,207));
-    g.fillEllipse(mid-2.f,capY-4.5f,4.f,4.f);
-    g.setColour(accent);g.fillRoundedRectangle(mid-9.f,capY+2.f,18.f,1.8f,.9f);
+    const float thumbY=std::clamp(pos,top+8.f,bottom-8.f);
+    g.setColour(accent.withAlpha(.82f));
+    g.drawLine(cx,bottom-4.f,cx,thumbY,1.25f);
+    const float capWidth=std::min(28.f,float(w)-12.f);
+    const juce::Rectangle<float> cap(cx-capWidth*.5f,thumbY-7.5f,capWidth,15.f);
+    g.setColour(juce::Colour::fromRGB(3,8,10).withAlpha(.42f));
+    g.fillRoundedRectangle(cap.translated(0,1.3f),3.f);
+    g.setGradientFill(juce::ColourGradient(
+        themeIndex==2?juce::Colour::fromRGB(150,158,153)
+                     :juce::Colour::fromRGB(85,104,107),
+        cap.getX(),cap.getY(),
+        themeIndex==2?juce::Colour::fromRGB(87,103,104)
+                     :juce::Colour::fromRGB(21,33,37),
+        cap.getRight(),cap.getBottom(),false));
+    g.fillRoundedRectangle(cap,3.f);
+    g.setColour(accent.withAlpha(.78f));
+    g.drawRoundedRectangle(cap,3.f,1.f);
+    g.setColour(foreground.withAlpha(.93f));
+    g.drawLine(cx-5.f,thumbY,cx+5.f,thumbY,1.55f);
 }
 
 void FlangLookAndFeel::drawRotarySlider(juce::Graphics&g,int x,int y,int w,int h,
@@ -119,13 +170,13 @@ void FlangLookAndFeel::drawRotarySlider(juce::Graphics&g,int x,int y,int w,int h
     const auto face=juce::Rectangle<float>(cx-radius,cy-radius,2.f*radius,2.f*radius);
     // Sculpted dark-steel ring and a restrained light catching the upper rim.
     // This is vector JUCE painting, not a scaled image or per-frame blur.
-    g.setColour(juce::Colour::fromRGB(3,10,12));
+    g.setColour(recess.darker(.18f));
     g.fillEllipse(outer.translated(0.f,1.f));
-    g.setColour(juce::Colour::fromRGB(65,91,86));
+    g.setColour(outline.brighter(.16f));
     g.drawEllipse(outer,1.f);
     juce::Path unfilled;
     unfilled.addCentredArc(cx,cy,radius+4.f,radius+4.f,0.f,start,end,true);
-    g.setColour(juce::Colour::fromRGB(38,66,62));
+    g.setColour(outline);
     g.strokePath(unfilled,juce::PathStrokeType(2.2f));
     juce::Path active;
     active.addCentredArc(cx,cy,radius+4.f,radius+4.f,0.f,
@@ -134,16 +185,18 @@ void FlangLookAndFeel::drawRotarySlider(juce::Graphics&g,int x,int y,int w,int h
     g.strokePath(active,juce::PathStrokeType(2.4f,juce::PathStrokeType::curved,
                                              juce::PathStrokeType::rounded));
     g.setGradientFill(juce::ColourGradient(
-        juce::Colour::fromRGB(54,79,79),face.getX(),face.getY(),
-        juce::Colour::fromRGB(15,29,32),face.getRight(),face.getBottom(),false));
+        themeIndex==2?juce::Colour::fromRGB(189,194,186)
+                     :surface.brighter(.85f),face.getX(),face.getY(),
+        themeIndex==2?juce::Colour::fromRGB(115,134,128)
+                     :recess,face.getRight(),face.getBottom(),false));
     g.fillEllipse(face);
-    g.setColour(juce::Colour::fromRGB(119,148,138).withAlpha(.76f));
+    g.setColour(outline.brighter(.25f));
     g.drawEllipse(face.reduced(.7f),.9f);
-    g.setColour(juce::Colour::fromRGB(13,28,30));
+    g.setColour(recess);
     g.fillEllipse(face.reduced(radius*.42f));
     const float angle=start+(end-start)*position;
     const float dx=std::sin(angle),dy=-std::cos(angle);
-    g.setColour(bone);
+    g.setColour(foreground);
     g.drawLine(cx+dx*radius*.34f,cy+dy*radius*.34f,
                cx+dx*radius*.76f,cy+dy*radius*.76f,2.5f);
     g.setColour(accent.withAlpha(.9f));
@@ -158,24 +211,18 @@ void FlangLookAndFeel::drawButtonBackground(juce::Graphics&g,juce::Button&button
     const bool modeButton=id.startsWith("mode-");
     const bool topButton=id=="skull"||id=="settings"||id=="preset";
     const float radius=topButton?6.f:5.f;
-    const auto surface=juce::Colour::fromRGB(13,25,29);
     // Crisp translucent fill on the currently selected mode, neutral inactive
     // cards, and an understated metallic top highlight for rack continuity.
     g.setColour(selected?accent.withAlpha(modeButton?.24f:.18f):
-                hover?juce::Colour::fromRGB(26,43,45):surface);
+                hover?outline.withAlpha(.78f):this->surface);
     g.fillRoundedRectangle(b,radius);
     g.setColour(selected?accent.withAlpha(.96f):
-                 hover?accent.withAlpha(.45f):juce::Colour::fromRGB(46,74,70));
+                 hover?accent.withAlpha(.55f):outline);
     g.drawRoundedRectangle(b,radius,selected?1.55f:.85f);
     g.setColour(selected?accent.withAlpha(.75f):
                  juce::Colour::fromRGB(88,123,117).withAlpha(.32f));
     g.drawLine(b.getX()+7.f,b.getY()+1.8f,
                b.getRight()-7.f,b.getY()+1.8f,.7f);
-    if(selected&&modeButton) {
-        g.setColour(accent.withAlpha(.87f));
-        g.fillRoundedRectangle(b.getX()+11.f,b.getBottom()-3.2f,
-                               b.getWidth()-22.f,1.8f,.9f);
-    }
     if(down) {
         g.setColour(accent.withAlpha(.18f));
         g.fillRoundedRectangle(b.reduced(2.f),4.f);
@@ -198,13 +245,13 @@ void FlangLookAndFeel::drawButtonBackground(juce::Graphics&g,juce::Button&button
         g.setColour(accent.withAlpha(.95f));
         g.fillEllipse(cx-p(10.f),cy-p(11.f),p(20.f),p(19.f));
         g.fillRoundedRectangle(cx-p(7.f),cy+p(1.f),p(14.f),p(10.f),p(2.f));
-        g.setColour(juce::Colour::fromRGB(9,21,23));
+        g.setColour(background);
         g.fillEllipse(cx-p(7.5f),cy-p(4.f),p(6.5f),p(6.f));
         g.fillEllipse(cx+p(1.f),cy-p(4.f),p(6.5f),p(6.f));
         juce::Path nose;
         nose.addTriangle(cx,cy+p(2.f),cx-p(2.2f),cy+p(5.f),cx+p(2.2f),cy+p(5.f));
         g.fillPath(nose);
-        g.setColour(juce::Colour::fromRGB(9,21,23).withAlpha(.85f));
+        g.setColour(background.withAlpha(.85f));
         g.drawLine(cx-p(4.5f),cy+p(7.6f),cx+p(4.5f),cy+p(7.6f),p(.8f));
         g.drawLine(cx,cy+p(5.6f),cx,cy+p(10.f),p(.8f));
     } else if(id=="settings") {
@@ -226,17 +273,17 @@ juce::Font FlangLookAndFeel::getPopupMenuFont() {
 }
 void FlangLookAndFeel::drawPopupMenuBackground(juce::Graphics&g,int w,int h) {
     g.setGradientFill(juce::ColourGradient(
-        juce::Colour::fromRGB(19,31,34),0.f,0.f,
-        juce::Colour::fromRGB(10,20,24),float(w),float(h),false));
+        surface.brighter(.04f),0.f,0.f,
+        surface.darker(.12f),float(w),float(h),false));
     g.fillRect(0,0,w,h);
-    g.setColour(juce::Colour::fromRGB(55,83,80));
+    g.setColour(outline);
     g.drawRect(0,0,w,h,1);
     g.setColour(accent.withAlpha(.75f));
     g.fillRect(1,1,std::max(1,w-2),2);
 }
 void FlangLookAndFeel::drawPopupMenuSectionHeader(juce::Graphics&g,
         const juce::Rectangle<int>& area,const juce::String& title) {
-    g.setColour(juce::Colour::fromRGB(31,49,50).withAlpha(.65f));
+    g.setColour(recess.withAlpha(.80f));
     g.fillRect(area.reduced(1,2));
     g.setColour(accent.withAlpha(.90f));
     g.setFont(juce::Font(10.2f,juce::Font::bold));
@@ -248,7 +295,7 @@ void FlangLookAndFeel::drawPopupMenuItem(juce::Graphics&g,
        bool ticked,bool submenu,const juce::String& caption,const juce::String&,
        const juce::Drawable*,const juce::Colour* overrideColour) {
     if(separator) {
-        g.setColour(juce::Colour::fromRGB(49,83,75));
+        g.setColour(outline);
         g.drawHorizontalLine(area.getCentreY(),float(area.getX()+12),float(area.getRight()-12));
         return;
     }
@@ -260,7 +307,7 @@ void FlangLookAndFeel::drawPopupMenuItem(juce::Graphics&g,
         g.fillRoundedRectangle(float(inner.getX()),float(inner.getY()+4),
                                2.f,float(std::max(1,inner.getHeight()-8)),1.f);
     }
-    juce::Colour fg=overrideColour?*overrideColour:bone;
+    juce::Colour fg=overrideColour?*overrideColour:foreground;
     if(!enabled)fg=fg.withAlpha(.38f);
     g.setColour(fg);
     g.setFont(juce::Font(12.f,highlighted?juce::Font::bold:juce::Font::plain));
@@ -297,6 +344,7 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
     skin.setColour(juce::PopupMenu::highlightedBackgroundColourId,juce::Colour::fromRGB(28,61,55));
     skin.setColour(juce::PopupMenu::highlightedTextColourId,bone);
     theme=juce::jlimit(0,2,int(p.parameters.state.getProperty("uiTheme",0)));
+    skin.setTheme(theme);
     for(int i=0;i<7;++i) {
         styleSlider(faders[i],true);
         addAndMakeVisible(faders[i]);
@@ -420,6 +468,9 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
     const juce::Component::SafePointer<SkellFlangAudioProcessorEditor> safeEditor(this);
     preset.onClick=[this,safeEditor] {
         juce::PopupMenu menu;
+        // PopupMenu is its own top-level component in a VST host. Explicit
+        // setLookAndFeel prevents the stock OS-style popup in FL Studio.
+        menu.setLookAndFeel(&skin);
         menu.addSectionHeader("SKELL SOUND LIBRARY");
         const auto selected=processor.parameters.state.getProperty("presetName","INIT").toString();
         menu.addItem(1,"INIT - Neutral Start",true,selected=="INIT");
@@ -429,6 +480,7 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         const int offsets[]{1,4,7,10,13};
         for(int group=0;group<5;++group) {
             juce::PopupMenu sounds;
+            sounds.setLookAndFeel(&skin);
             for(int j=0;j<3;++j) {
                 const int index=offsets[group]+j;
                 sounds.addItem(index+1,presets[size_t(index)],true,
@@ -448,6 +500,7 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
     };
     settings.onClick=[this,safeEditor]{
         juce::PopupMenu menu;
+        menu.setLookAndFeel(&skin);
         menu.addSectionHeader("SKELL-FLANG SETTINGS");
         const auto* active=processor.parameters.getRawParameterValue("power");
         const bool powered=active&&active->load(std::memory_order_relaxed)>.5f;
@@ -482,7 +535,7 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
 
     setResizable(true,true);
     if(auto* c=getConstrainer())c->setFixedAspectRatio(double(baseW)/baseH);
-    setResizeLimits(540,338,1080,675);
+    setResizeLimits(540,375,1080,750);
     const int savedWidth=juce::jlimit(540,1080,
         int(p.parameters.state.getProperty("uiWidth",540)));
     setSize(savedWidth,juce::roundToInt(savedWidth*double(baseH)/baseW));
@@ -490,7 +543,9 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
     startTimerHz(30);
 }
 SkellFlangAudioProcessorEditor::~SkellFlangAudioProcessorEditor(){
-    stopTimer();setLookAndFeel(nullptr);
+    stopTimer();
+    juce::PopupMenu::dismissAllActiveMenus();
+    setLookAndFeel(nullptr);
 }
 
 void SkellFlangAudioProcessorEditor::resized() {
@@ -498,32 +553,34 @@ void SkellFlangAudioProcessorEditor::resized() {
     if(currentWidth>=540&&currentWidth<=1080&&
        int(processor.parameters.state.getProperty("uiWidth",540))!=currentWidth)
         processor.parameters.state.setProperty("uiWidth",currentWidth,nullptr);
-    const float s=currentWidth/float(baseW);
-    const auto fontSize=juce::jlimit(9.1f,12.f,12.f*s);
-    for(auto& text:faderLabels)text.setFont(juce::Font(fontSize));
-    for(auto& text:knobLabels)text.setFont(juce::Font(juce::jlimit(9.f,11.f,11.f*s)));
-    auto place=[s](juce::Component& c,int x,int y,int w,int h){
-        c.setBounds(juce::roundToInt(x*s),juce::roundToInt(y*s),
-                    juce::roundToInt(w*s),juce::roundToInt(h*s));
+    const float scale=currentWidth/float(baseW);
+    const auto faderFont=juce::jlimit(9.3f,12.f,12.f*scale);
+    const auto knobFont=juce::jlimit(9.f,11.5f,11.5f*scale);
+    for(auto& text:faderLabels)text.setFont(juce::Font(faderFont));
+    for(auto& text:knobLabels)text.setFont(juce::Font(knobFont));
+    auto place=[scale](juce::Component& c,int x,int y,int w,int h){
+        c.setBounds(juce::roundToInt(x*scale),juce::roundToInt(y*scale),
+                    juce::roundToInt(w*scale),juce::roundToInt(h*scale));
     };
+    // Same familiar three-section hierarchy, with 50 additional design px
+    // of breathing space at every editor width.
     place(skull,14,10,43,29);
     place(preset,342,10,222,29);
     place(settings,644,10,62,29);
-    for(int i=0;i<5;++i)place(tabs[size_t(i)],16+i*139,69,132,34);
-    place(order,25,147,52,116);
+    for(int i=0;i<5;++i)
+        place(tabs[size_t(i)],16+i*139,72,132,38);
+    place(order,25,169,52,142);
     for(int i=0;i<7;++i) {
-        place(faders[size_t(i)],93+i*62,147,49,116);
-        place(faderLabels[size_t(i)],88+i*62,268,59,21);
-        const int x=125+i*80;
-        place(knobs[size_t(i)],x,311,57,56);
-        place(knobLabels[size_t(i)],x-7,370,72,18);
+        place(faders[size_t(i)],93+i*62,169,49,142);
+        place(faderLabels[size_t(i)],88+i*62,316,59,21);
+        const int knobX=125+i*80;
+        place(knobs[size_t(i)],knobX,363,57,57);
+        place(knobLabels[size_t(i)],knobX-7,422,72,18);
     }
-    // Permanent integrated morph row. No page or popup switches; all main
-    // audio and character parameters remain visible at 540 px and larger.
-    place(target,53,395,130,25);
-    place(morph,238,395,183,25);
-    place(shape,478,395,97,25);
-    place(sync,591,395,100,25);
+    place(target,53,453,130,26);
+    place(morph,238,453,183,26);
+    place(shape,478,453,97,26);
+    place(sync,591,453,100,26);
 }
 void SkellFlangAudioProcessorEditor::updateMode() {
     const auto* raw=processor.parameters.getRawParameterValue("mode");
@@ -541,9 +598,27 @@ void SkellFlangAudioProcessorEditor::updateMode() {
     shownMode=selected;
     // Every effect always retains its own color identity. The skull cycles
     // brighter / neutral / restrained accent intensity, not random colors.
-    skin.accent=theme==0?tints[selected]
-        :theme==1?tints[selected].brighter(.24f)
-                  :tints[selected].withMultipliedSaturation(.73f).darker(.10f);
+    skin.setTheme(theme);
+    skin.accent=tints[selected]; // unchanged on skull click
+    skin.setColour(juce::PopupMenu::highlightedBackgroundColourId,skin.accent.withAlpha(.23f));
+    // Components need actual palette updates; changing just the mode tint
+    // previously left the entire UI in the original midnight theme.
+    for(auto& l:faderLabels)l.setColour(juce::Label::textColourId,skin.secondary);
+    for(auto& l:knobLabels)l.setColour(juce::Label::textColourId,skin.secondary);
+    for(auto* drop:{&target,&shape}) {
+        drop->setColour(juce::ComboBox::backgroundColourId,skin.recess);
+        drop->setColour(juce::ComboBox::textColourId,skin.foreground);
+        drop->setColour(juce::ComboBox::outlineColourId,skin.outline);
+        drop->setColour(juce::ComboBox::arrowColourId,skin.accent);
+    }
+    for(auto& t:tabs){
+        t.setColour(juce::TextButton::textColourOffId,skin.foreground);
+        t.setColour(juce::TextButton::textColourOnId,skin.foreground);
+    }
+    for(auto* t:{&preset,&settings,&skull,&sync}){
+        t->setColour(juce::TextButton::textColourOffId,skin.foreground);
+        t->setColour(juce::TextButton::textColourOnId,skin.foreground);
+    }
     for(auto& slider:faders)slider.repaint();
     for(auto& slider:knobs)slider.repaint();
     for(auto& tab:tabs)tab.repaint();
@@ -556,6 +631,7 @@ void SkellFlangAudioProcessorEditor::updateMode() {
         label(knobLabels[size_t(3+i)],knobNames[selected][i]);
         knobLabels[size_t(3+i)].setFont(juce::Font(
             juce::jlimit(9.f,11.f,11.f*getWidth()/float(baseW))));
+        knobLabels[size_t(3+i)].setColour(juce::Label::textColourId,skin.secondary);
     }
     repaint();
 }
@@ -574,23 +650,23 @@ void SkellFlangAudioProcessorEditor::timerCallback() {
     if(preset.getButtonText()!=name)preset.setButtonText(name);
     const float s=getWidth()/float(baseW);
     repaint(0,juce::roundToInt(50*s),getWidth(),juce::roundToInt(15*s));
-    repaint(juce::roundToInt(536*s),juce::roundToInt(114*s),
-            juce::roundToInt(171*s),juce::roundToInt(181*s));
-    repaint(0,juce::roundToInt(428*s),getWidth(),
+    repaint(juce::roundToInt(536*s),juce::roundToInt(124*s),
+            juce::roundToInt(171*s),juce::roundToInt(219*s));
+    repaint(0,juce::roundToInt(485*s),getWidth(),
             std::max(1,getHeight()-juce::roundToInt(426*s)));
 }
 void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     const float s=getWidth()/float(baseW);
-    g.fillAll(dark);
+    g.fillAll(skin.background);
     g.saveState();
     g.addTransform(juce::AffineTransform::scale(s));
 
     // Asymmetric "instrument rack" layout: one clean fader deck, one monitor,
     // and context-sensitive controls below. No asset scaling, per-frame blurs,
     // duplicated container frames or continuous full-window gradients.
-    g.setColour(juce::Colour::fromRGB(9,17,19));
-    g.fillRect(0,0,baseW,52);
-    g.setColour(juce::Colour::fromRGB(30,55,52));
+    g.setColour(skin.surface.withAlpha(skin.themeIndex==2?.98f:.42f));
+    g.fillRect(0,0,baseW,48);
+    g.setColour(skin.outline);
     g.drawLine(14.f,47.f,706.f,47.f,.75f);
     // Skell Key-inspired discrete feedback strip: 52 restrained segments,
     // illuminated directly by actual stereo peak signal, no decorative L/R.
@@ -603,51 +679,46 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
         const bool lit=i<active;
         const float h=lit?3.8f:1.8f;
         g.setColour(lit?skin.accent.withAlpha(.56f+.39f*i/meterSegments)
-                       :juce::Colour::fromRGB(51,72,67).withAlpha(.65f));
+                       :skin.secondary.withAlpha(.29f));
         g.fillRoundedRectangle(x,54.f+(4.f-h)*.5f,
                                slot-2.3f,h,.75f);
     }
-    // A mode-specific identity glow follows selection only, not idle hover.
-    for(int i=0;i<5;++i)if(shownMode==visibleModes[size_t(i)]) {
-        g.setColour(skin.accent.withAlpha(.93f));
-        g.fillRoundedRectangle(31.f+139.f*i,105.f,101.f,2.f,1.f);
-        break;
-    }
-
-    panelRect(g,14,114,516,183);
-    panelRect(g,538,114,169,183);
-    panelRect(g,14,303,693,122);
+    // Selected mode is highlighted solely by its illuminated button surface.
+    // Removed the redundant two- and three-line underline ornaments.
+    panelRect(g,14,124,516,218,skin);
+    panelRect(g,538,124,169,218,skin);
+    panelRect(g,14,351,693,132,skin);
 
     // The clickable vector skull lives in the header; no duplicate ornament.
     const auto glow=skin.accent;
-    g.setColour(bone);g.setFont(juce::Font(20.f,juce::Font::bold));
+    g.setColour(skin.foreground);g.setFont(juce::Font(20.f,juce::Font::bold));
     g.drawText("SKELL-FLANG",74,8,245,29,juce::Justification::centredLeft);
     g.setColour(glow.withAlpha(.9f));g.setFont(juce::Font(10.5f));
     g.drawText("BEND THE BONES  /  MODULATION ENGINE",76,34,244,12,
                juce::Justification::centredLeft);
 
-    g.setColour(muted);g.setFont(juce::Font(10.5f));
-    g.drawText("01  /  CONTROL DECK",27,120,170,16,juce::Justification::left);
-    g.drawText("ORD",24,268,54,20,juce::Justification::centred);
-    g.drawText("02  /  SIGNAL",550,120,143,16,juce::Justification::left);
+    g.setColour(skin.secondary);g.setFont(juce::Font(10.5f));
+    g.drawText("01  /  CONTROL DECK",27,130,170,16,juce::Justification::left);
+    g.drawText("ORD",24,316,54,20,juce::Justification::centred);
+    g.drawText("02  /  SIGNAL",550,130,143,16,juce::Justification::left);
 
     // Small technical divider motifs make the layout distinctive, not busy.
     g.setColour(glow.withAlpha(.50f));
-    g.fillRoundedRectangle(27.f,139.f,33.f,1.3f,.5f);
-    g.fillRoundedRectangle(550.f,139.f,27.f,1.3f,.5f);
+    g.fillRoundedRectangle(27.f,154.f,33.f,1.3f,.5f);
+    g.fillRoundedRectangle(550.f,154.f,27.f,1.3f,.5f);
 
-    const juce::Rectangle<float> scope(552.f,151.f,141.f,104.f);
-    g.setColour(juce::Colour::fromRGB(8,17,19));
+    const juce::Rectangle<float> scope(552.f,162.f,141.f,135.f);
+    g.setColour(skin.recess);
     g.fillRoundedRectangle(scope,5.f);
-    g.setColour(juce::Colour::fromRGB(38,68,63));
+    g.setColour(skin.outline);
     g.drawRoundedRectangle(scope,5.f,.8f);
     // Ghost ribs and central spine remain faint under a live waveform.
     // They are static original vectors, not simulated audio or a bitmap.
     const float centreX=scope.getCentreX();
-    g.setColour(juce::Colour::fromRGB(51,107,94).withAlpha(.25f));
+    g.setColour(skin.secondary.withAlpha(.20f));
     g.drawLine(centreX,scope.getY()+11.f,centreX,scope.getBottom()-11.f,1.f);
     for(int i=0;i<6;++i) {
-        const float yy=scope.getY()+17.f+float(i)*12.6f;
+        const float yy=scope.getY()+22.f+float(i)*17.2f;
         const float reach=36.f+5.f*std::sin(float(i)*.55f);
         juce::Path rib;
         rib.startNewSubPath(centreX-3.f,yy);
@@ -658,7 +729,7 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
                         centreX+reach,yy+4.f);
         g.strokePath(rib,juce::PathStrokeType(.75f));
     }
-    g.setColour(juce::Colour::fromRGB(38,80,70).withAlpha(.55f));
+    g.setColour(skin.secondary.withAlpha(.28f));
     g.drawLine(scope.getX()+5.f,scope.getCentreY(),
                scope.getRight()-5.f,scope.getCentreY(),.75f);
 
@@ -678,32 +749,32 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     const juce::String annotation=shownMode==5
         ? ("PITCH  "+juce::String(processor.meters.pitch.load(std::memory_order_relaxed),1)+" Hz")
         : ("MODE  /  "+juce::String(modes[std::clamp(shownMode,0,7)]));
-    g.drawText(annotation,554,267,142,16,juce::Justification::left);
+    g.drawText(annotation,554,310,142,17,juce::Justification::left);
 
     // Every parameter is available without entering a separate MOD page.
-    g.setColour(muted);
+    g.setColour(skin.secondary);
     g.setFont(juce::Font(10.5f,juce::Font::bold));
-    g.drawFittedText("03 / TONE",27,321,84,15,
+    g.drawFittedText("03 / TONE",27,367,84,15,
                      juce::Justification::centredLeft,1);
     g.setFont(juce::Font(9.5f));
-    g.drawFittedText("CHARACTER",27,346,92,13,
+    g.drawFittedText("CHARACTER",27,394,92,13,
                      juce::Justification::centredLeft,1);
-    g.setColour(juce::Colour::fromRGB(44,71,66));
-    g.fillRoundedRectangle(27.f,389.f,669.f,1.f,.5f);
+    g.setColour(skin.outline);
+    g.fillRoundedRectangle(27.f,446.f,669.f,1.f,.5f);
     // Inline captions do not overlap the knob labels above at compact scale.
     g.setColour(skin.accent.withAlpha(.78f));
     g.setFont(juce::Font(9.8f,juce::Font::bold));
-    g.drawText("TO",29,395,23,25,juce::Justification::centredLeft);
-    g.drawText("MORPH",188,395,50,25,juce::Justification::centredLeft);
-    g.drawText("WAVE",429,395,47,25,juce::Justification::centredLeft);
+    g.drawText("TO",29,453,23,26,juce::Justification::centredLeft);
+    g.drawText("MORPH",188,453,50,26,juce::Justification::centredLeft);
+    g.drawText("WAVE",429,453,47,26,juce::Justification::centredLeft);
 
     // Footer remains legible when the editor is scaled to compact mode.
-    g.setColour(muted);g.setFont(juce::Font(12.f));
+    g.setColour(skin.secondary);g.setFont(juce::Font(11.f));
     g.drawText("LIVE  /  "+juce::String(processor.meters.bpm.load(std::memory_order_relaxed),1)+
                " BPM   /   PDC "+juce::String(processor.getLatencySamples())+
                "   /   CPU "+juce::String(processor.meters.cpu.load(std::memory_order_relaxed),1)+
                "%   /   "+juce::String(modes[std::clamp(shownMode,0,7)]),
-               20,430,685,18,juce::Justification::centredLeft);
+               20,486,685,14,juce::Justification::centredLeft);
     g.restoreState();
 }
 

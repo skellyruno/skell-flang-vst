@@ -89,3 +89,14 @@
 - Chorus ENSEMBLE control now drives an independent slow motion; Flangus comb delay floors at 1.2 ms.
 - Preserved Orbit DSP, existing preset and parameter IDs, default window size, zero PDC and Windows VST3-only packaging.
 - Run real editor render, sanitizer, portable DSP, and pluginval in CI; test listening in FL Studio before release.
+
+
+## v0.9 — menu, fader and theme separation overhaul
+
+- **Menu regression repair:** JUCE popup windows are separate top-level components in a host; the preset and settings menus now call `menu.setLookAndFeel(&skin)` explicitly and each preset submenu gets the same look-and-feel. The original custom popup drawing finally applies in FL Studio instead of the generic host/default appearance. Menu font, background, separators, tick marks, highlighted rows and selected accent follow Skell-Flang's own theme. Captions are ASCII-safe.
+- **Less crowded editor:** new aspect 720 x 500. Saved width presets remain 540/720/900/1080; respective heights are 375/500/625/750. The control deck was re-spaced vertically without relocating the familiar faders, tone knobs, morph row, scope or header. User resize maintains the fixed new aspect.
+- **Precision hardware faders:** replaced broad black vertical wells and oversized horizontal caps with narrow machined tracks, restrained side ticks, slim metal caps and calibrated active fill. Knob/character strip remains below.
+- **Selected effect:** removed all redundant underlines; a selected mode now illuminates its own button surface, frame and subtle chrome edge, keeping the other four neutral.
+- **Skull cycles true interface themes** (Midnight, Graphite, Bone) independently of per-effect accent identities: Chorus seafoam; Flanger cyan; Flangus neon lime; Orbit periwinkle; Dimension warm gold. Clicking the skull changes the panel, header, text, dropdowns, knobs, faders and popup surfaces; the effect identity color never changes.
+- Expanded the shared SkellCore visual suite to **50 real JUCE editor screenshots**: 5 modes x 2 morph settings x 4 sizes, plus all five modes in Graphite and Bone at 720 px. It now checks true theme changes and constant effect identity color, in addition to independent control hit areas.
+- **No DSP/automation rework:** plugin IDs, parameters, factory presets, zero host PDC and Orbit sound all preserved. This is a UI-only pass.

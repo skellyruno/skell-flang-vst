@@ -37,7 +37,8 @@ int main(){
         editor->setVisible(true);
         editor->addToDesktop(0);
         verify(editor->isShowing(),"Editor needs a native peer for real screenshots");
-        verify(editor->getWidth()==540,"Compact size changed unexpectedly");
+        verify(editor->getWidth()==540 && editor->getHeight()==375,
+               "Compact 540 x 375 editor proportions are incorrect");
         verify(processor.getProgramName(0).isNotEmpty(),"Missing host program name");
 
         const std::array<int,5> choices{0,1,6,4,7};
@@ -69,7 +70,15 @@ int main(){
                "Initial morph target must be populated without waiting for the UI timer");
         verify(morph->isVisible()&&dest->isVisible()&&wave->isVisible()&&sync->isVisible(),
                "Morph and LFO controls must always be visible");
+        auto* look=dynamic_cast<FlangLookAndFeel*>(&editor->getLookAndFeel());
+        verify(look!=nullptr,"Skell-Flang is not using the custom look-and-feel");
+        const auto initialAccent=look->accent;
+        const auto initialBackground=look->background;
         click(skull,"Skull theme cycle is not clickable");
+        verify(look->background!=initialBackground,
+               "Skull click did not actually change the interface background");
+        verify(look->accent==initialAccent,
+               "Skull theme click incorrectly changed the effect identity accent");
         verify(morph->isVisible(),"Skull theme change hid morph controls");
 
         // A factory preset must update the engine AND the character controls.
@@ -85,7 +94,7 @@ int main(){
         // Shared SkellCore captures the ACTUAL editor child tree at every
         // supported size, across all five modes, with both dry and morphed settings.
         skellcore::ui::headless::Options options;
-        options.project="Skell-Flang v0.8 real JUCE AudioProcessorEditor";
+        options.project="Skell-Flang v0.9 JUCE UI - roomier theme-separated mixer";
         options.minimumColours=12;
         for(const int width:std::array<int,4>{540,720,900,1080})
             for(size_t mode=0;mode<choices.size();++mode)
@@ -95,16 +104,40 @@ int main(){
                               juce::String(names[mode]).toLowerCase()+
                               (morphed?"-morphed":"-unmorphed");
                     scene.width=width;
-                    scene.height=juce::roundToInt(double(width)*450./720.);
+                    scene.height=juce::roundToInt(double(width)*500./720.);
                     scene.mode=choices[mode];
                     scene.browser=morphed!=0;
                     options.scenes.push_back(scene);
                 }
+        // Also capture all five selected effects in both additional true
+        // themes at a comfortable size; guard against tint-only theme changes.
+        for(size_t mode=0;mode<choices.size();++mode)
+            for(int skin=1;skin<=2;++skin) {
+                skellcore::ui::headless::Scene scene;
+                scene.id="Skell-Flang-720-"+juce::String(names[mode]).toLowerCase()+
+                        (skin==1?"-graphite":"-bone");
+                scene.width=720;
+                scene.height=500;
+                scene.mode=choices[mode];
+                scene.browser=false;
+                options.scenes.push_back(scene);
+            }
         options.configure=[&](const auto& scene) {
             auto* tab=findButton(*editor,juce::String(
                 scene.mode==0?"CHORUS":scene.mode==1?"FLANGER":
                 scene.mode==6?"FLANGUS":scene.mode==4?"ORBIT":"DIMENSION"));
             click(tab,"Mode screenshot selector could not be clicked");
+            const int expectedTheme=scene.id.endsWith("-graphite")?1:
+                                    scene.id.endsWith("-bone")?2:0;
+            for(int i=0;i<3 && look->themeIndex!=expectedTheme;++i)
+                click(skull,"Cannot switch editor theme for renderer snapshot");
+            verify(look->themeIndex==expectedTheme,"Wrong theme in screenshot");
+            const juce::Colour identity=scene.mode==0?juce::Colour::fromRGB(75,230,172):
+                scene.mode==1?juce::Colour::fromRGB(60,203,245):
+                scene.mode==6?juce::Colour::fromRGB(154,244,77):
+                scene.mode==4?juce::Colour::fromRGB(138,160,255):
+                               juce::Colour::fromRGB(246,202,131);
+            verify(look->accent==identity,"Theme altered the selected effect color");
             verify(int(processor.parameters.getRawParameterValue("mode")->load())==scene.mode,
                    "Wrong mode in screenshot");
             morph->setValue(scene.browser?.76:0.0,juce::sendNotificationSync);
@@ -150,7 +183,9 @@ int main(){
         options.mustDiffer={
             {"Skell-Flang-540-chorus-unmorphed","Skell-Flang-540-chorus-morphed"},
             {"Skell-Flang-540-flanger-unmorphed","Skell-Flang-540-flangus-unmorphed"},
-            {"Skell-Flang-540-orbit-unmorphed","Skell-Flang-540-dimension-unmorphed"}
+            {"Skell-Flang-540-orbit-unmorphed","Skell-Flang-540-dimension-unmorphed"},
+            {"Skell-Flang-720-chorus-unmorphed","Skell-Flang-720-chorus-graphite"},
+            {"Skell-Flang-720-chorus-graphite","Skell-Flang-720-chorus-bone"}
         };
         juce::Image probe(juce::Image::ARGB,8,8,true);
         {juce::Graphics g(probe);g.fillAll(juce::Colours::red);}
@@ -162,7 +197,7 @@ int main(){
         for(const auto& error:report.errors)
             std::cerr<<"Visual regression: "<<error.toStdString()<<"\n";
         verify(report.passed(),"Shared SkellCore visual regression failed");
-        verify(report.captured==40,"Expected 40 screenshots at four widths");
+        verify(report.captured==50,"Expected 50 screenshots including true skull themes");
         std::cout<<"SkellCore captured "<<report.captured<<" real-editor views\n";
 
         // Keep testing legacy Tuned playback for old FL Studio saves, although
@@ -186,7 +221,7 @@ int main(){
         processor.releaseResources();
         return 0;
     }catch(const std::exception& e){
-        std::cerr<<"Skell-Flang v0.8 UI test failed: "<<e.what()<<"\n";
+        std::cerr<<"Skell-Flang v0.9 UI test failed: "<<e.what()<<"\n";
         return 1;
     }
 }

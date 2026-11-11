@@ -6,7 +6,17 @@
 
 class FlangLookAndFeel final : public juce::LookAndFeel_V4 {
 public:
+    // The skull changes the entire surface palette. The selected effect
+    // always keeps its own accent, independent of which skin is active.
+    void setTheme(int index);
+    int themeIndex=0;
     juce::Colour accent=juce::Colour::fromRGB(57,255,58);
+    juce::Colour background=juce::Colour::fromRGB(7,12,14);
+    juce::Colour surface=juce::Colour::fromRGB(17,26,29);
+    juce::Colour foreground=juce::Colour::fromRGB(226,239,230);
+    juce::Colour secondary=juce::Colour::fromRGB(143,169,164);
+    juce::Colour outline=juce::Colour::fromRGB(33,54,51);
+    juce::Colour recess=juce::Colour::fromRGB(8,17,19);
     void drawLinearSlider(juce::Graphics&,int,int,int,int,float,float,float,
                           const juce::Slider::SliderStyle,juce::Slider&) override;
     void drawRotarySlider(juce::Graphics&,int,int,int,int,float,float,float,juce::Slider&) override;
