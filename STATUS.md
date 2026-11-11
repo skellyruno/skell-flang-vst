@@ -67,3 +67,15 @@
 - Preserved automation IDs, factory presets, plugin identity and zero reported host PDC. Windows VST3 only; the UI smoke executable is used solely in CI, never distributed.
 - Revision `d4ca90ef` passed portable DSP tests, ASan/UBSan, Windows VST3 compilation, Steinberg VST3 validation, pluginval and a 20-scene real-editor render test.
 - Outstanding: genuine through-zero design with an explicit PDC contract, in-DAW FL Studio automation and listening validation, and low-spec Windows/long-duration CPU profiling. Observational Linux CI CPU numbers must not be confused with FL Studio measurements.
+
+## v0.7 — five-effect refresh
+
+- Primary selectable modes are CHORUS (0), FLANGER (1), FLANGUS (6), ORBIT (4), and DIMENSION (7).
+- Legacy VOWEL (2), REVERSE (3), TUNED (5) remain accessible through restored host states and host automation for backward compatibility, but are hidden in the new UI.
+- Revised chorus/flanger tonal algorithms and slower exponential free-running LFO speed mapping; independent new FLANGUS and DIMENSION engines.
+- Preserved original Orbit stereo DSP.
+- Factory sound bank reduced to 16 intentional presets with full parameter edits and morph reset.
+- Removed CORE/COLOR/MOTION navigation and the ACTIVE/BYPASS header banner; added always-visible seven-knob tone strip and MOD drawer.
+- Added clickable vector skull theme cycling, gear menu for sizes and effect enable, and custom themed grouped preset popup.
+- Shared renderer expanded to 40 scene captures across all current modes, drawers and sizes.
+- Portable DSP, sanitizers, and Windows VST3 must be verified in current CI; actual FL Studio listening and long host-automation stress remain open.

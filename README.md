@@ -2,17 +2,21 @@
 
 Original Skell Audio JUCE 8 / C++17 VST3-only modulation-delay plugin, based on the shared SkellCore template. **This is a working development build, not a validated commercial release.**
 
-## Six modes
-- **CHORUS:** modulated 1–8 voice delays, feedback, and stereo spread.
-- **FLANGER:** short comb delays, bipolar feedback and manual sweep.
-- **VOWEL:** comb delay into five interpolated approximate resonant formants.
-- **REVERSE:** overlapping reversed Hann-windowed grains with an up-to-1.5-second ring buffer.
-- **ORBIT:** delay/panning-based stereo circular motion with air attenuation.
-- **TUNED:** pitch- or key-following harmonic comb with monophonic control-path autocorrelation.
+## Five current effects (v0.7)
 
-## Interface
+- **CHORUS** — newly voiced multi-voice stereo detuning with low-speed motion and complementary left/right waveforms.
+- **FLANGER** — revised short-delay comb sweep with independent stereo phase and bipolar feedback.
+- **FLANGUS** — new original eight-voice-capable ensemble blending slow chorus movement and faster comb travel, influenced by the stacked-modulated-delay concept (not a replica or use of FL Studio code).
+- **ORBIT** — existing rotating stereo/spatial processor preserved by request.
+- **DIMENSION** — new stereo doubling/micro-delay width engine for vocals and instruments.
 
-Screenshot-inspired seven vertical lanes (DEPTH, SPEED, DELAY, SPREAD, CROSS, DRY, WET), eight-step ORD, six tabs, live waveform scope, four mode knobs, FEEDBACK/TONE/OUTPUT, morph target, preset menu, and dark/gunmetal neon Skell look. The default compact editor is 540 × 338 with CORE / COLOR / MOTION pages; scale can be changed to 720, 900, or 1080 pixels wide and is stored with the plugin state. The UI uses original vector drawing. UI is all-vector, so no commercial raster art or fonts are needed.
+For old FL Studio sessions, **Vowel (mode 2), Reverse (3) and Tuned (5)** retain their original internal IDs and DSP. They are no longer offered in the current selector/preset browser; the new engines are **Flangus (6)** and **Dimension (7)**. Old automation IDs, plugin manufacturer/product IDs, and legacy parameter values are unchanged.
+
+## Interface (v0.7)
+
+The compact 540 × 338 editor has five mode tabs, seven always-visible main faders, a bottom row of seven editable rotary tone/character controls, and a live audio monitor. The previous CORE/COLOR/MOTION bottom navigation is removed. The **MOD** button opens an integrated destination/morph/LFO drawer with collision-safe layout; **BACK** returns to the tonal controls. Clicking the vector skull cycles accent skins. The top-right gear opens window sizes and the automatable Effect enabled toggle; there is no ACTIVE/BYPASS banner. The preset browser is grouped by sound family and uses custom Skell-themed popup painting. All four sizes (540, 720, 900, 1080 wide) are retained.
+
+The 16 factory presets now load complete mix, filter, feedback, depth, spread, modulation and character settings. Controls, ranges and effect choices remain automatable; selecting a factory preset resets morph to zero so old morph settings do not make sounds unexpectedly different.
 
 ## Build Windows
 
@@ -74,3 +78,7 @@ JUCE and the shared SkellCore source have separate licensing/provenance obligati
 ## Packaging verification
 
 The Windows CI now parses and normalizes the JUCE-generated `moduleinfo.json` (including trailing commas) before distribution, then uploads `dist/` directly as an Actions artifact containing **only the VST3 bundle**. The portable DSP test suite also runs with AddressSanitizer and UndefinedBehaviorSanitizer. This is packaging and static/runtime test coverage, not a substitute for pluginval or FL Studio host validation.
+
+## v0.7 verification notes
+
+The shared SkellCore renderer generates 40 real-editor screenshot scenes (5 effect modes × 2 drawer states × 4 editor sizes), checks visibility and bounds, and verifies mode and preset interactions. Portable DSP tests exercise all eight internal engine indices (five current plus three compatibility modes) across sustained signals and stress paths. The Windows workflow compiles only an x64 VST3 and performs pluginval. A successful CI build confirms structural behavior, **not** subjective mixing quality: FL Studio listening, preset comparisons, low-end machine CPU tests and 24-hour automation stress remain to do.
