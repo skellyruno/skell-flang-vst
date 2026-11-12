@@ -22,6 +22,7 @@ public:
     void drawRotarySlider(juce::Graphics&,int,int,int,int,float,float,float,juce::Slider&) override;
     void drawButtonBackground(juce::Graphics&,juce::Button&,const juce::Colour&,
                               bool,bool) override;
+    void drawButtonText(juce::Graphics&,juce::TextButton&,bool,bool) override;
     juce::Font getTextButtonFont(juce::TextButton&,int buttonHeight) override;
     juce::Font getComboBoxFont(juce::ComboBox&) override;
     juce::Font getPopupMenuFont() override;
@@ -43,6 +44,7 @@ public:
 private:
     void timerCallback() override;
     void updateMode();
+    void updateMacroSelection();
 
     SkellFlangAudioProcessor& processor;
     FlangLookAndFeel skin;
@@ -53,6 +55,9 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> orderLink,morphLink;
     std::array<juce::Slider,7> knobs;
     std::array<juce::Label,7> knobLabels;
+    // Keep four real APVTS attachments, but only show one macro dial at a time.
+    std::array<juce::TextButton,4> macroTabs;
+    int selectedMacro=0;
     std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>,7> knobLinks;
     std::array<juce::TextButton,5> tabs;
     juce::ComboBox target,shape;
@@ -63,5 +68,6 @@ private:
     float headerLevel=0.f;
     int theme=0;
     int shownMode=-1;
+    int shownTheme=-1;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SkellFlangAudioProcessorEditor)
 };
