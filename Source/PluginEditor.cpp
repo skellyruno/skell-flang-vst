@@ -878,11 +878,11 @@ void SkellFlangAudioProcessorEditor::resized() {
     };
     // Same overall instrument-rack layout, with three primary tone knobs.
     // Four contextual macro parameters remain available by selection.
-    place(skull,14,10,44,39);
-    place(preset,374,11,250,38);
-    place(settings,644,11,62,38);
+    place(skull,17,12,40,35);
+    place(preset,389,10,251,39);
+    place(settings,662,12,41,35);
     for(int i=0;i<5;++i)
-        place(tabs[size_t(i)],16+i*139,72,132,38);
+        place(tabs[size_t(i)],27+i*138,77,111,29);
     place(order,25,169,52,142);
     for(int i=0;i<7;++i) {
         place(faders[size_t(i)],93+i*62,169,49,142);
@@ -1037,7 +1037,17 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     }
     // Selected mode is highlighted solely by its illuminated button surface.
     // Removed the redundant two- and three-line underline ornaments.
-    panelRect(g,14,124,516,218,skin);
+    // The control deck must be neutral machined charcoal, not a separate
+    // blue/purple module. Use the same active theme palette as the rack.
+    const juce::Rectangle<float> deck(14.f,124.f,516.f,218.f);
+    g.setGradientFill(juce::ColourGradient(
+        skin.surface.brighter(.10f),deck.getX(),deck.getY(),
+        skin.recess.brighter(.12f),deck.getRight(),deck.getBottom(),false));
+    g.fillRoundedRectangle(deck,9.f);
+    g.setColour(skin.outline.withAlpha(.94f));
+    g.drawRoundedRectangle(deck,9.f,.9f);
+    g.setColour(skin.foreground.withAlpha(skin.themeIndex==2?.13f:.055f));
+    g.drawLine(26.f,125.6f,519.f,125.6f,.7f);
     panelRect(g,538,124,169,218,skin);
     panelRect(g,14,351,693,132,skin);
 
@@ -1049,8 +1059,11 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.drawText("BEND THE BONES  /  MODULATION ENGINE",76,34,244,12,
                juce::Justification::centredLeft);
 
-    g.setColour(skin.secondary);g.setFont(juce::Font(10.5f));
+    g.setColour(skin.foreground.withAlpha(.86f));
+    g.setFont(juce::Font(10.5f,juce::Font::bold));
     g.drawText("01  /  CONTROL DECK",27,130,170,16,juce::Justification::left);
+    g.setColour(skin.secondary);
+    g.setFont(juce::Font(10.5f));
     g.drawText("ORD",24,316,54,20,juce::Justification::centred);
     g.drawText("02  /  SIGNAL",550,130,143,16,juce::Justification::left);
 
@@ -1097,7 +1110,7 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.setColour(glow.withAlpha(.90f));
     g.strokePath(signal,juce::PathStrokeType(1.35f));
 
-    g.setColour(muted);g.setFont(juce::Font(10.5f));
+    g.setColour(skin.secondary);g.setFont(juce::Font(10.5f));
     const juce::String annotation=shownMode==5
         ? ("PITCH  "+juce::String(processor.meters.pitch.load(std::memory_order_relaxed),1)+" Hz")
         : ("MODE  /  "+juce::String(modes[std::clamp(shownMode,0,7)]));
