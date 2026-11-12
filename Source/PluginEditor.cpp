@@ -348,88 +348,189 @@ void FlangLookAndFeel::drawButtonBackground(juce::Graphics&g,juce::Button&button
     const auto id=button.getComponentID();
     const bool modeButton=id.startsWith("mode-");
     const bool macroButton=id.startsWith("macro-");
-    const bool topButton=id=="skull"||id=="settings"||id=="preset";
-    const float radius=topButton?7.f:(macroButton?4.f:5.f);
-    // Crisp translucent fill on the currently selected mode, neutral inactive
-    // cards, and an understated metallic top highlight for rack continuity.
-    g.setColour(selected?accent.withAlpha(modeButton?.23f:(macroButton?.18f:.12f)):
-                hover?surface.brighter(.20f):(topButton?recess:surface));
+    const bool daylight=themeIndex==2;
+
+    if(id=="preset") {
+        // One unobstructed sound-library selector, split into a wide name
+        // display and a deliberately narrow dropdown trigger.
+        g.setColour(juce::Colours::black.withAlpha(daylight?.10f:.27f));
+        g.fillRoundedRectangle(b.translated(0.f,1.4f),5.5f);
+        g.setGradientFill(juce::ColourGradient(
+            daylight?juce::Colour::fromRGB(251,251,243):surface.brighter(.21f),
+            b.getX(),b.getY(),
+            daylight?juce::Colour::fromRGB(228,232,219):recess,
+            b.getX(),b.getBottom(),false));
+        g.fillRoundedRectangle(b,5.5f);
+        g.setColour((hover?accent:outline).withAlpha(hover?.68f:.88f));
+        g.drawRoundedRectangle(b,5.5f,.9f);
+        g.setColour(accent.withAlpha(.92f));
+        g.fillRoundedRectangle(b.getX()+1.4f,b.getY()+6.f,
+                               2.1f,b.getHeight()-12.f,1.f);
+        const float divider=b.getRight()-29.f;
+        g.setColour(outline.withAlpha(.92f));
+        g.drawLine(divider,b.getY()+5.f,divider,b.getBottom()-5.f,.85f);
+        const float ax=b.getRight()-15.f,ay=b.getCentreY()+.6f;
+        juce::Path arrow;
+        arrow.startNewSubPath(ax-3.5f,ay-1.7f);
+        arrow.lineTo(ax,ay+1.8f);
+        arrow.lineTo(ax+3.5f,ay-1.7f);
+        g.setColour(hover?accent:secondary);
+        g.strokePath(arrow,juce::PathStrokeType(1.5f,
+                     juce::PathStrokeType::curved,juce::PathStrokeType::rounded));
+        if(down) {
+            g.setColour(accent.withAlpha(.10f));
+            g.fillRoundedRectangle(b.reduced(2.f),4.f);
+        }
+        return;
+    }
+
+    if(id=="skull"||id=="settings") {
+        // Compact, precisely bounded utility buttons; no oversized square
+        // around the gear. The skull remains a functional three-theme switch.
+        g.setGradientFill(juce::ColourGradient(
+            hover?surface.brighter(.28f):surface.brighter(.06f),
+            b.getX(),b.getY(),recess,b.getRight(),b.getBottom(),false));
+        g.fillRoundedRectangle(b,6.f);
+        g.setColour((hover?accent:outline).withAlpha(hover?.71f:.82f));
+        g.drawRoundedRectangle(b,6.f,.85f);
+        if(down) {
+            g.setColour(accent.withAlpha(.12f));
+            g.fillRoundedRectangle(b.reduced(2.f),4.3f);
+        }
+        const float cx=b.getCentreX(),cy=b.getCentreY();
+        if(id=="skull") {
+            // Original Flang skull crest: metallic crown and jaw with short
+            // phase-wave ornaments. No skeleton-key geometry is reused.
+            const float u=std::min(b.getWidth()/39.f,b.getHeight()/35.f);
+            juce::Path skullShape;
+            skullShape.startNewSubPath(cx-7.7f*u,cy-4.f*u);
+            skullShape.cubicTo(cx-10.3f*u,cy-12.6f*u,cx-3.7f*u,cy-12.f*u,
+                               cx,cy-12.f*u);
+            skullShape.cubicTo(cx+3.7f*u,cy-12.f*u,cx+10.3f*u,cy-12.6f*u,
+                               cx+7.7f*u,cy-4.f*u);
+            skullShape.lineTo(cx+8.f*u,cy+2.f*u);
+            skullShape.lineTo(cx+5.3f*u,cy+4.2f*u);
+            skullShape.lineTo(cx+5.3f*u,cy+9.3f*u);
+            skullShape.lineTo(cx-5.3f*u,cy+9.3f*u);
+            skullShape.lineTo(cx-5.3f*u,cy+4.2f*u);
+            skullShape.lineTo(cx-8.f*u,cy+2.f*u);
+            skullShape.closeSubPath();
+            g.setGradientFill(juce::ColourGradient(
+                daylight?juce::Colour::fromRGB(121,135,126)
+                        :juce::Colour::fromRGB(215,233,224),
+                cx-7.f*u,cy-10.f*u,
+                daylight?juce::Colour::fromRGB(69,81,76)
+                        :juce::Colour::fromRGB(105,139,130),
+                cx+7.f*u,cy+9.f*u,false));
+            g.fillPath(skullShape);
+            g.setColour(accent.withAlpha(.72f));
+            g.strokePath(skullShape,juce::PathStrokeType(.9f*u));
+            g.setColour(recess);
+            juce::Path eyes;
+            eyes.startNewSubPath(cx-6.7f*u,cy-2.6f*u);
+            eyes.lineTo(cx-1.5f*u,cy-1.2f*u);
+            eyes.lineTo(cx-2.4f*u,cy+2.7f*u);
+            eyes.lineTo(cx-6.0f*u,cy+1.6f*u);
+            eyes.closeSubPath();
+            eyes.startNewSubPath(cx+6.7f*u,cy-2.6f*u);
+            eyes.lineTo(cx+1.5f*u,cy-1.2f*u);
+            eyes.lineTo(cx+2.4f*u,cy+2.7f*u);
+            eyes.lineTo(cx+6.f*u,cy+1.6f*u);
+            eyes.closeSubPath();
+            g.fillPath(eyes);
+            juce::Path nose;
+            nose.addTriangle(cx,cy+1.3f*u,cx-1.9f*u,cy+4.4f*u,
+                             cx+1.9f*u,cy+4.4f*u);
+            g.fillPath(nose);
+            g.setColour(recess.withAlpha(.92f));
+            g.drawLine(cx-4.6f*u,cy+5.2f*u,cx+4.6f*u,cy+5.2f*u,1.f*u);
+            for(int n=-1;n<=1;++n) {
+                const float tx=cx+float(n)*2.25f*u;
+                g.drawLine(tx,cy+5.2f*u,tx,cy+8.8f*u,.7f*u);
+            }
+            g.setColour(accent.withAlpha(.85f));
+            for(int side:{-1,1}) {
+                juce::Path wave;
+                const float sx=float(side);
+                wave.startNewSubPath(cx+sx*10.8f*u,cy-3.5f*u);
+                wave.quadraticTo(cx+sx*14.1f*u,cy-7.2f*u,
+                                 cx+sx*15.4f*u,cy-3.5f*u);
+                wave.quadraticTo(cx+sx*17.2f*u,cy+.7f*u,
+                                 cx+sx*18.0f*u,cy-3.5f*u);
+                g.strokePath(wave,juce::PathStrokeType(1.f*u));
+            }
+        } else {
+            // Eight-tooth machined gear with a real centre aperture.
+            const float r=7.9f;
+            juce::Path gear;
+            for(int i=0;i<32;++i) {
+                const float a=juce::MathConstants<float>::twoPi*float(i)/32.f;
+                const bool tooth=(i%4==1||i%4==2);
+                const float rr=tooth?r+1.1f:r-1.0f;
+                const float px=cx+std::cos(a)*rr,py=cy+std::sin(a)*rr;
+                if(i==0)gear.startNewSubPath(px,py);else gear.lineTo(px,py);
+            }
+            gear.closeSubPath();
+            g.setGradientFill(juce::ColourGradient(
+                foreground.withAlpha(.98f),cx-6.f,cy-6.f,
+                secondary.withAlpha(.91f),cx+7.f,cy+8.f,false));
+            g.fillPath(gear);
+            g.setColour(recess);
+            g.fillEllipse(cx-3.4f,cy-3.4f,6.8f,6.8f);
+            g.setColour(accent.withAlpha(.87f));
+            g.drawEllipse(cx-3.0f,cy-3.0f,6.0f,6.0f,.85f);
+        }
+        return;
+    }
+
+    const float radius=modeButton?5.3f:(macroButton?4.f:5.f);
+    g.setColour(juce::Colours::black.withAlpha(daylight?.05f:.25f));
+    g.fillRoundedRectangle(b.translated(0.f,1.f),radius);
+    const auto top=selected?surface.brighter(.32f):
+                   (hover?surface.brighter(.22f):surface.brighter(.10f));
+    const auto bottom=selected?accent.withAlpha(daylight?.08f:.12f):
+                      (hover?surface:recess);
+    g.setGradientFill(juce::ColourGradient(
+        top,b.getX(),b.getY(),bottom,b.getX(),b.getBottom(),false));
     g.fillRoundedRectangle(b,radius);
-    g.setColour(selected?accent.withAlpha(.90f):
-                 hover?accent.withAlpha(.55f):outline.withAlpha(.85f));
-    g.drawRoundedRectangle(b,radius,selected?1.55f:.85f);
-    if(topButton) {
-        g.setColour(foreground.withAlpha(themeIndex==2?.19f:.13f));
-        g.drawLine(b.getX()+9.f,b.getY()+1.6f,
-                   b.getRight()-9.f,b.getY()+1.6f,.8f);
+    g.setColour(selected?accent.withAlpha(modeButton?.73f:.82f):
+                hover?accent.withAlpha(.46f):outline.withAlpha(.77f));
+    g.drawRoundedRectangle(b,radius,selected?1.13f:.82f);
+    g.setColour(juce::Colours::white.withAlpha(daylight?.24f:.08f));
+    g.drawLine(b.getX()+6.f,b.getY()+1.4f,
+               b.getRight()-6.f,b.getY()+1.4f,.65f);
+    if(modeButton&&selected) {
+        g.setColour(accent.withAlpha(.89f));
+        g.fillRoundedRectangle(b.getX()+5.1f,b.getCentreY()-4.5f,
+                               1.7f,9.f,.85f);
     }
     if(down) {
-        g.setColour(accent.withAlpha(.18f));
-        g.fillRoundedRectangle(b.reduced(2.f),4.f);
-    }
-    if(id=="preset") {
-        const float yy=b.getCentreY()+.5f;
-        const float xx=b.getRight()-13.f;
-        juce::Path downArrow;
-        downArrow.startNewSubPath(xx-3.f,yy-2.f);
-        downArrow.lineTo(xx,yy+1.f);
-        downArrow.lineTo(xx+3.f,yy-2.f);
-        g.setColour(accent.withAlpha(.80f));
-        g.strokePath(downArrow,juce::PathStrokeType(1.25f));
-    }
-    if(id=="skull") {
-        // Small original bone crest; vector drawn at any editor scale.
-        const float cx=b.getCentreX(),cy=b.getCentreY();
-        const float unit=std::min(b.getWidth()/38.f,b.getHeight()/28.f);
-        auto p=[&](float v){return v*unit;};
-        g.setColour(accent.withAlpha(.95f));
-        g.fillEllipse(cx-p(10.f),cy-p(11.f),p(20.f),p(19.f));
-        g.fillRoundedRectangle(cx-p(7.f),cy+p(1.f),p(14.f),p(10.f),p(2.f));
-        g.setColour(background);
-        g.fillEllipse(cx-p(7.5f),cy-p(4.f),p(6.5f),p(6.f));
-        g.fillEllipse(cx+p(1.f),cy-p(4.f),p(6.5f),p(6.f));
-        juce::Path nose;
-        nose.addTriangle(cx,cy+p(2.f),cx-p(2.2f),cy+p(5.f),cx+p(2.2f),cy+p(5.f));
-        g.fillPath(nose);
-        g.setColour(background.withAlpha(.85f));
-        g.drawLine(cx-p(4.5f),cy+p(7.6f),cx+p(4.5f),cy+p(7.6f),p(.8f));
-        g.drawLine(cx,cy+p(5.6f),cx,cy+p(10.f),p(.8f));
-    } else if(id=="settings") {
-        const float cx=b.getCentreX(),cy=b.getCentreY();
-        const float rr=std::min(b.getWidth(),b.getHeight())*.23f;
-        g.setColour(accent.withAlpha(.9f));
-        for(int k=0;k<8;++k) {
-            const float theta=float(2*skellflang::pi*k/8.);
-            g.drawLine(cx+std::cos(theta)*rr,cy+std::sin(theta)*rr,
-                       cx+std::cos(theta)*rr*1.43f,cy+std::sin(theta)*rr*1.43f,1.6f);
-        }
-        g.drawEllipse(cx-rr,cy-rr,2*rr,2*rr,1.7f);
-        g.fillEllipse(cx-rr*.34f,cy-rr*.34f,rr*.68f,rr*.68f);
+        g.setColour(accent.withAlpha(.12f));
+        g.fillRoundedRectangle(b.reduced(2.f),radius-1.f);
     }
 }
 
 void FlangLookAndFeel::drawButtonText(juce::Graphics& g,
                                      juce::TextButton& button,bool hover,bool down) {
     const auto id=button.getComponentID();
-    if(id=="skull"||id=="settings")return; // Vector icons live in the button face.
+    if(id=="skull"||id=="settings")return;
     const auto bounds=button.getLocalBounds();
     if(id=="preset") {
-        const int pad=juce::jlimit(8,15,bounds.getHeight()/3);
-        const int top=juce::jlimit(9,14,bounds.getHeight()/3);
-        g.setColour(secondary);
-        g.setFont(juce::Font(juce::jlimit(7.5f,9.8f,
-                                         bounds.getHeight()*.26f),
+        const float height=float(bounds.getHeight());
+        const int pad=13;
+        g.setColour(secondary.withAlpha(.90f));
+        g.setFont(juce::Font(juce::jlimit(7.8f,9.5f,height*.265f),
                              juce::Font::bold));
-        g.drawText("PRESET",pad,2,bounds.getWidth()-pad-29,top,
-                   juce::Justification::centredLeft);
-        g.setColour(foreground.withAlpha(down?.80f:1.f));
-        g.setFont(juce::Font(juce::jlimit(10.f,14.f,
-                                         bounds.getHeight()*.37f),
-                             juce::Font::bold));
-        g.drawFittedText(button.getButtonText(),
-                         pad,top+1,bounds.getWidth()-pad-31,
-                         juce::jmax(9,bounds.getHeight()-top-3),
+        g.drawFittedText("SOUND LIBRARY",pad,3,bounds.getWidth()-pad-40,
+                         juce::jmax(8,juce::roundToInt(height*.32f)),
                          juce::Justification::centredLeft,1);
+        g.setColour(foreground.withAlpha(down?.79f:1.f));
+        g.setFont(juce::Font(juce::jlimit(11.f,14.f,height*.38f),
+                             juce::Font::bold));
+        g.drawFittedText(button.getButtonText(),pad,juce::roundToInt(height*.39f),
+                          bounds.getWidth()-pad-43,
+                          juce::jmax(12,juce::roundToInt(height*.53f)),
+                          juce::Justification::centredLeft,1);
         return;
     }
     if(id.startsWith("macro-")) {
@@ -441,10 +542,10 @@ void FlangLookAndFeel::drawButtonText(juce::Graphics& g,
         return;
     }
     if(id.startsWith("mode-")) {
-        g.setColour(button.getToggleState()?foreground:secondary.brighter(.28f));
-        g.setFont(juce::Font(juce::jlimit(11.f,13.5f,float(bounds.getHeight())*.37f),
+        g.setColour(button.getToggleState()?foreground:secondary.brighter(.26f));
+        g.setFont(juce::Font(juce::jlimit(10.f,11.8f,float(bounds.getHeight())*.42f),
                             button.getToggleState()?juce::Font::bold:juce::Font::plain));
-        g.drawFittedText(button.getButtonText(),bounds.reduced(4,2),
+        g.drawFittedText(button.getButtonText(),bounds.reduced(8,2),
                          juce::Justification::centred,1);
         return;
     }
