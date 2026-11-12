@@ -1041,8 +1041,12 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     // blue/purple module. Use the same active theme palette as the rack.
     const juce::Rectangle<float> deck(14.f,124.f,516.f,218.f);
     g.setGradientFill(juce::ColourGradient(
-        skin.surface.brighter(.10f),deck.getX(),deck.getY(),
-        skin.recess.brighter(.12f),deck.getRight(),deck.getBottom(),false));
+        skin.themeIndex==2?skin.surface.darker(.03f)
+                          :skin.surface.brighter(.015f),
+        deck.getX(),deck.getY(),
+        skin.themeIndex==2?skin.recess.brighter(.04f)
+                          :skin.surface.darker(.12f),
+        deck.getRight(),deck.getBottom(),false));
     g.fillRoundedRectangle(deck,9.f);
     g.setColour(skin.outline.withAlpha(.94f));
     g.drawRoundedRectangle(deck,9.f,.9f);
