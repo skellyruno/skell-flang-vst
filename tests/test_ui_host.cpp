@@ -90,6 +90,16 @@ int main(){
         verify(processor.parameters.state.getProperty("presetName").toString()=="Flangus Glow",
                "Preset title was not saved");
         verify(processor.getLatencySamples()==0,"Unexpected host delay compensation");
+        // WorldLink is opt-in and owned by the processor, not the editor.
+        // Exercise a no-hub join/leave while the native editor is alive.
+        verify(!processor.worldLink.requested() && !processor.worldLink.online(),
+               "SkellWorld network connection must be off by default");
+        verify(processor.worldLink.join(),"Opt-in local WorldLink worker failed to start");
+        verify(processor.worldLink.requested(),"Opt-in state not observable");
+        processor.worldLink.leave();
+        verify(!processor.worldLink.requested() && !processor.worldLink.online(),
+               "Leaving WorldLink did not release the connection");
+
 
         // Shared SkellCore captures the ACTUAL editor child tree at every
         // supported size, across all five modes, with both dry and morphed settings.

@@ -100,3 +100,9 @@
 - **Skull cycles true interface themes** (Midnight, Graphite, Bone) independently of per-effect accent identities: Chorus seafoam; Flanger cyan; Flangus neon lime; Orbit periwinkle; Dimension warm gold. Clicking the skull changes the panel, header, text, dropdowns, knobs, faders and popup surfaces; the effect identity color never changes.
 - Expanded the shared SkellCore visual suite to **50 real JUCE editor screenshots**: 5 modes x 2 morph settings x 4 sizes, plus all five modes in Graphite and Bone at 720 px. It now checks true theme changes and constant effect identity color, in addition to independent control hit areas.
 - **No DSP/automation rework:** plugin IDs, parameters, factory presets, zero host PDC and Orbit sound all preserved. This is a UI-only pass.
+
+## v0.9.1 — SkellWorld opt-in presence and realtime release gates
+
+The old draft SkellWorld PR was ported on top of the current v0.9 UI/DSP without downgrading the bundled SkellCore UI renderer. Two small, local-only protocol/worker headers are vendored from skellyruno/skellcore-vst-template, pinned at commit 214badd41c05bfcc7d7528dba5b5984a6d607cc3, so there is no new remote dependency. The themed gear menu now contains a **SKELLWORLD** section with opt-in Join/Leave and read-only connection status. The WorldLink is processor-owned and never touched by processBlock(). No automation, latency or VST3 identity changed.
+
+Release tests now include portable SW1 protocol rejection/mailbox tests and real-time C++ allocation checks for eight internal modes plus morph, and a Windows native-editor smoke test of join/leave with no hub. A live two-instance Windows FL Studio hub round-trip and long listening stress still require actual in-host testing. Distribution remains **Windows VST3 only**.

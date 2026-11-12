@@ -512,12 +512,27 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         const int widths[]{540,720,900,1080};
         for(int i=0;i<4;++i)
             menu.addItem(10+i,names[i],true,juce::roundToInt(getWidth())==widths[i]);
+        menu.addSeparator();
+        menu.addSectionHeader("SKELLWORLD");
+        menu.addItem(50,processor.worldLink.requested()
+            ? "Leave SkellWorld" : "Join SkellWorld");
+        menu.addItem(51,processor.worldLink.online()
+            ? ("Connected - "+juce::String(processor.worldLink.peerCount())+" peers")
+            : (processor.worldLink.requested()?"Connecting to local hub":"Offline - opt in to connect"),
+            false,false);
         menu.showMenuAsync(juce::PopupMenu::Options()
                                .withTargetComponent(&settings).withMinimumWidth(242)
                                .withMaximumNumColumns(1),
             [safeEditor](int item){
                 if(!safeEditor)return;
-                if(item==1) {
+                if(item==50) {
+                    // UI thread only; never send networking or thread actions
+                    // through processBlock or JUCE parameter automation.
+                    if(safeEditor->processor.worldLink.requested())
+                        safeEditor->processor.worldLink.leave();
+                    else
+                        safeEditor->processor.worldLink.join();
+                } else if(item==1) {
                     if(auto* v=safeEditor->processor.parameters.getParameter("power")) {
                         v->beginChangeGesture();
                         v->setValueNotifyingHost(v->convertTo0to1(
@@ -648,6 +663,12 @@ void SkellFlangAudioProcessorEditor::timerCallback() {
     const juce::String name=processor.parameters.state
         .getProperty("presetName","INIT").toString();
     if(preset.getButtonText()!=name)preset.setButtonText(name);
+    const juce::String worldTip=processor.worldLink.requested()
+        ? (processor.worldLink.online()
+            ? "SkellWorld connected - "+juce::String(processor.worldLink.peerCount())+" peers"
+            : "SkellWorld waiting for local hub")
+        : "Settings / window size / optional SkellWorld";
+    if(settings.getTooltip()!=worldTip)settings.setTooltip(worldTip);
     const float s=getWidth()/float(baseW);
     repaint(0,juce::roundToInt(50*s),getWidth(),juce::roundToInt(15*s));
     repaint(juce::roundToInt(536*s),juce::roundToInt(124*s),

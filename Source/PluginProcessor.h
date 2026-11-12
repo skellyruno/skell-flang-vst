@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "FlangDSP.h"
+#include <SkellCore/WorldLink.h>
 #include <array>
 #include <atomic>
 
@@ -32,6 +33,8 @@ public:
     void setStateInformation(const void*,int) override;
     void applyFactoryPreset(int);
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
+    // Opt-in background-only presence. The audio callback never calls WorldLink.
+    skellcore::world::WorldLink worldLink{"skell.flang","Skell-Flang"};
     juce::AudioProcessorValueTreeState parameters;
     struct MeterData {
         std::atomic<float> peaks[2];

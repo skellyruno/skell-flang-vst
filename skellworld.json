@@ -1,0 +1,10 @@
+{
+  "schema": "skellworld-plugin/1",
+  "product_id": "skell.flang",
+  "name": "Skell-Flang",
+  "manufacturer": "Skell Audio",
+  "plugin_code": "Fl26",
+  "bundle_id": "audio.skell.skellflang",
+  "connection": "explicit-opt-in-loopback",
+  "capabilities": ["presence","informational-events"]
+}
