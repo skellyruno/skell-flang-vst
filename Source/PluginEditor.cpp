@@ -131,9 +131,9 @@ void FlangLookAndFeel::drawLinearSlider(juce::Graphics& g,int x,int y,int w,int 
     const float railLength=std::max(1.f,railBottom-railTop);
     const bool daylight=themeIndex==2;
     const juce::Colour wellTop=daylight?juce::Colour::fromRGB(203,207,199)
-                                       :juce::Colour::fromRGB(30,37,55);
+                                       :juce::Colour::fromRGB(24,34,34);
     const juce::Colour wellBottom=daylight?juce::Colour::fromRGB(187,193,185)
-                                          :juce::Colour::fromRGB(17,23,39);
+                                          :juce::Colour::fromRGB(10,18,20);
     const auto well=juce::Rectangle<float>(float(x)+1.f,float(y)+1.f,
                                            float(w)-2.f,float(h)-2.f);
 
@@ -142,9 +142,9 @@ void FlangLookAndFeel::drawLinearSlider(juce::Graphics& g,int x,int y,int w,int 
                                            wellBottom,well.getX(),well.getBottom(),false));
     g.fillRoundedRectangle(well,6.f);
     g.setColour(daylight?juce::Colour::fromRGB(149,156,148)
-                        :juce::Colour::fromRGB(46,55,77));
+                        :juce::Colour::fromRGB(43,63,59));
     g.drawRoundedRectangle(well,6.f,.85f);
-    g.setColour((daylight?juce::Colours::white:juce::Colour::fromRGB(107,122,153))
+    g.setColour((daylight?juce::Colours::white:juce::Colour::fromRGB(119,150,141))
                     .withAlpha(daylight?.35f:.15f));
     g.drawLine(well.getX()+5.f,well.getY()+1.7f,
                well.getRight()-5.f,well.getY()+1.7f,.75f);
@@ -155,16 +155,16 @@ void FlangLookAndFeel::drawLinearSlider(juce::Graphics& g,int x,int y,int w,int 
         const float yy=railTop+float(mark)*railLength/16.f;
         const float tick=(mark%4==0)?7.f:4.f;
         g.setColour((daylight?juce::Colour::fromRGB(76,93,91)
-                              :juce::Colour::fromRGB(133,147,169))
+                              :juce::Colour::fromRGB(124,153,144))
                         .withAlpha(mark%4==0?.34f:.19f));
         g.drawLine(cx-8.f-tick,yy,cx-8.f,yy,.7f);
         g.drawLine(cx+8.f,yy,cx+8.f+tick,yy,.7f);
     }
     // Precision etched rail, with a tiny specular edge.
     g.setColour(daylight?juce::Colour::fromRGB(118,128,121)
-                        :juce::Colour::fromRGB(8,12,23));
+                        :juce::Colour::fromRGB(6,12,14));
     g.drawLine(cx,railTop,cx,railBottom,2.15f);
-    g.setColour((daylight?juce::Colours::white:juce::Colour::fromRGB(127,142,158))
+    g.setColour((daylight?juce::Colours::white:juce::Colour::fromRGB(120,145,137))
                     .withAlpha(daylight?.35f:.26f));
     g.drawLine(cx-.7f,railTop,cx-.7f,railBottom,.65f);
 
@@ -235,7 +235,7 @@ void FlangLookAndFeel::drawLinearSlider(juce::Graphics& g,int x,int y,int w,int 
         ? juce::String(juce::roundToInt(control.getValue()))
         : juce::String(juce::roundToInt(control.getValue()*100.))+"%";
     g.setColour((daylight?juce::Colour::fromRGB(63,76,75)
-                          :juce::Colour::fromRGB(161,175,192)).withAlpha(.82f));
+                          :juce::Colour::fromRGB(165,187,179)).withAlpha(.82f));
     g.setFont(juce::Font(juce::jlimit(8.f,10.3f,float(w)*.215f),
                          juce::Font::bold));
     g.drawText(readout,x+1,y+2,w-2,12,juce::Justification::centred);
@@ -244,44 +244,101 @@ void FlangLookAndFeel::drawLinearSlider(juce::Graphics& g,int x,int y,int w,int 
 
 void FlangLookAndFeel::drawRotarySlider(juce::Graphics&g,int x,int y,int w,int h,
                                         float position,float start,float end,juce::Slider&) {
-    const float cx=float(x)+w*.5f,cy=float(y)+h*.5f;
-    const float radius=std::min(w,h)*.325f;
-    const auto outer=juce::Rectangle<float>(cx-radius-3.f,cy-radius-3.f,
-                                           2.f*radius+6.f,2.f*radius+6.f);
-    const auto face=juce::Rectangle<float>(cx-radius,cy-radius,2.f*radius,2.f*radius);
-    // Sculpted dark-steel ring and a restrained light catching the upper rim.
-    // This is vector JUCE painting, not a scaled image or per-frame blur.
-    g.setColour(recess.darker(.18f));
-    g.fillEllipse(outer.translated(0.f,1.f));
-    g.setColour(outline.brighter(.16f));
-    g.drawEllipse(outer,1.f);
-    juce::Path unfilled;
-    unfilled.addCentredArc(cx,cy,radius+4.f,radius+4.f,0.f,start,end,true);
-    g.setColour(outline);
-    g.strokePath(unfilled,juce::PathStrokeType(2.2f));
-    juce::Path active;
-    active.addCentredArc(cx,cy,radius+4.f,radius+4.f,0.f,
-                         start,start+(end-start)*position,true);
-    g.setColour(accent.withAlpha(.95f));
-    g.strokePath(active,juce::PathStrokeType(2.4f,juce::PathStrokeType::curved,
-                                             juce::PathStrokeType::rounded));
+    // Compact machined hardware dial: real stepped edge, light-catching bevels,
+    // satin graphite face and engraved index. Pure vector drawing at all sizes.
+    const float cx=float(x)+float(w)*.5f,cy=float(y)+float(h)*.5f;
+    const float radius=float(std::min(w,h))*.318f;
+    const float rimRadius=radius+3.0f;
+    const bool boneTheme=themeIndex==2;
+    const auto graphite=boneTheme?juce::Colour::fromRGB(89,99,95)
+                                 :juce::Colour::fromRGB(47,60,63);
+    const auto edgeLight=boneTheme?juce::Colour::fromRGB(203,210,195)
+                                  :juce::Colour::fromRGB(145,165,166);
+    const auto edgeDark=boneTheme?juce::Colour::fromRGB(70,83,79)
+                                 :juce::Colour::fromRGB(17,27,31);
+
+    // Fine, recessed calibration arc. A short accent sweep replaces the
+    // oversized neon circle; ten fixed etched ticks make setting repeatable.
+    juce::Path track;
+    track.addCentredArc(cx,cy,rimRadius+3.5f,rimRadius+3.5f,
+                        0.f,start,end,true);
+    g.setColour(outline.withAlpha(.93f));
+    g.strokePath(track,juce::PathStrokeType(1.7f,
+                 juce::PathStrokeType::curved,juce::PathStrokeType::rounded));
+    for(int i=0;i<=10;++i) {
+        const float a=start+(end-start)*float(i)/10.f;
+        const float inner=rimRadius+4.4f;
+        const float outer=inner+(i%5==0?3.0f:1.4f);
+        g.setColour(secondary.withAlpha(i%5==0?.54f:.26f));
+        g.drawLine(cx+std::sin(a)*inner,cy-std::cos(a)*inner,
+                   cx+std::sin(a)*outer,cy-std::cos(a)*outer,.72f);
+    }
+    juce::Path sweep;
+    sweep.addCentredArc(cx,cy,rimRadius+3.5f,rimRadius+3.5f,0.f,
+                        start,start+(end-start)*position,true);
+    g.setColour(accent.withAlpha(.92f));
+    g.strokePath(sweep,juce::PathStrokeType(2.05f,
+                 juce::PathStrokeType::curved,juce::PathStrokeType::rounded));
+
+    // The cast shadow is intentionally below the rim; this grounds the dial.
+    g.setColour(juce::Colours::black.withAlpha(boneTheme?.19f:.52f));
+    g.fillEllipse(cx-rimRadius,cy-rimRadius+2.4f,
+                  rimRadius*2.f,rimRadius*2.f);
     g.setGradientFill(juce::ColourGradient(
-        themeIndex==2?juce::Colour::fromRGB(189,194,186)
-                     :surface.brighter(.85f),face.getX(),face.getY(),
-        themeIndex==2?juce::Colour::fromRGB(115,134,128)
-                     :recess,face.getRight(),face.getBottom(),false));
-    g.fillEllipse(face);
-    g.setColour(outline.brighter(.25f));
-    g.drawEllipse(face.reduced(.7f),.9f);
-    g.setColour(recess);
-    g.fillEllipse(face.reduced(radius*.42f));
-    const float angle=start+(end-start)*position;
-    const float dx=std::sin(angle),dy=-std::cos(angle);
-    g.setColour(foreground);
-    g.drawLine(cx+dx*radius*.34f,cy+dy*radius*.34f,
-               cx+dx*radius*.76f,cy+dy*radius*.76f,2.5f);
-    g.setColour(accent.withAlpha(.9f));
-    g.fillEllipse(cx-1.65f,cy-1.65f,3.3f,3.3f);
+        edgeLight,cx-rimRadius*.5f,cy-rimRadius*.9f,
+        edgeDark,cx+rimRadius*.7f,cy+rimRadius,false));
+    g.fillEllipse(cx-rimRadius,cy-rimRadius,rimRadius*2.f,rimRadius*2.f);
+    g.setColour(edgeDark);
+    g.drawEllipse(cx-rimRadius,cy-rimRadius,rimRadius*2.f,rimRadius*2.f,1.1f);
+
+    // Small regular radial grooves read as a knurled metal grip, not an LED.
+    for(int i=0;i<28;++i) {
+        const float a=juce::MathConstants<float>::twoPi*float(i)/28.f;
+        const float inner=radius+.8f,outer=radius+2.2f;
+        g.setColour(i>=16&&i<=23?juce::Colours::black.withAlpha(.34f)
+                                :juce::Colours::white.withAlpha(boneTheme?.15f:.20f));
+        g.drawLine(cx+std::sin(a)*inner,cy-std::cos(a)*inner,
+                   cx+std::sin(a)*outer,cy-std::cos(a)*outer,.8f);
+    }
+
+    // Broad sloping shoulder and a smaller brushed-metal central face.
+    g.setGradientFill(juce::ColourGradient(
+        boneTheme?juce::Colour::fromRGB(190,197,184)
+                 :juce::Colour::fromRGB(116,135,135),
+        cx-radius*.65f,cy-radius*.85f,
+        graphite.darker(.38f),cx+radius*.65f,cy+radius*.85f,false));
+    g.fillEllipse(cx-radius,cy-radius,radius*2.f,radius*2.f);
+    g.setColour(edgeLight.withAlpha(.50f));
+    g.drawEllipse(cx-radius+.5f,cy-radius+.5f,radius*2.f-1.f,radius*2.f-1.f,.85f);
+    const float inset=radius*.79f;
+    g.setGradientFill(juce::ColourGradient(
+        boneTheme?juce::Colour::fromRGB(118,129,121)
+                 :juce::Colour::fromRGB(53,72,73),
+        cx-inset*.45f,cy-inset*.9f,
+        boneTheme?juce::Colour::fromRGB(79,92,86)
+                 :juce::Colour::fromRGB(16,27,30),
+        cx+inset*.7f,cy+inset,false));
+    g.fillEllipse(cx-inset,cy-inset,inset*2.f,inset*2.f);
+    g.setColour(juce::Colours::black.withAlpha(.43f));
+    g.drawEllipse(cx-inset,cy-inset,inset*2.f,inset*2.f,.8f);
+
+    // Illuminated but narrow, recessed index slot. No central green dot.
+    const float a=start+(end-start)*position;
+    const float dx=std::sin(a),dy=-std::cos(a);
+    g.setColour(juce::Colours::black.withAlpha(.60f));
+    g.drawLine(cx+dx*inset*.28f+.5f,cy+dy*inset*.28f+.5f,
+               cx+dx*inset*.90f+.5f,cy+dy*inset*.90f+.5f,3.0f);
+    g.setColour(boneTheme?juce::Colour::fromRGB(236,242,225)
+                        :juce::Colour::fromRGB(220,238,231));
+    g.drawLine(cx+dx*inset*.28f,cy+dy*inset*.28f,
+               cx+dx*inset*.87f,cy+dy*inset*.87f,1.7f);
+    g.setColour(accent.withAlpha(.85f));
+    g.drawLine(cx+dx*inset*.52f,cy+dy*inset*.52f,
+               cx+dx*inset*.88f,cy+dy*inset*.88f,.9f);
+
+    g.setColour(juce::Colours::white.withAlpha(boneTheme?.24f:.11f));
+    g.drawLine(cx-inset*.38f,cy-inset*.66f,
+               cx+inset*.30f,cy-inset*.73f,.65f);
 }
 
 void FlangLookAndFeel::drawButtonBackground(juce::Graphics&g,juce::Button&button,
