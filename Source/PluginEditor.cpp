@@ -122,53 +122,124 @@ void FlangLookAndFeel::drawLinearSlider(juce::Graphics& g,int x,int y,int w,int 
         g.drawLine(thumbX,centreY-4.f,thumbX,centreY+4.f,1.4f);
         return;
     }
-    // Compact, calibrated console fader: no tall recessed cassette slot.
-    // Readout remains readable at 540px and shows the actual host parameter.
-    const auto& slider=control;
+    // Reference-style miniature hardware console fader. All geometry is
+    // vector-drawn in local slider coordinates, so every JUCE editor size
+    // stays sharp, and the host/APVTS value and gesture remain untouched.
     const float cx=float(x)+float(w)*.5f;
-    const float top=float(y)+23.f;
-    const float bottom=float(y+h)-9.f;
-    const float span=std::max(12.f,bottom-top);
-    const bool orderFader=slider.getComponentID()=="fader-order";
-    const auto readout=orderFader
-        ? juce::String(juce::roundToInt(slider.getValue()))
-        : juce::String(juce::roundToInt(slider.getValue()*100.))+"%";
-    g.setColour(secondary.withAlpha(.95f));
-    g.setFont(juce::Font(juce::jlimit(8.5f,11.5f,float(w)*.23f),
-                         juce::Font::bold));
-    g.drawText(readout,x+1,y+1,w-2,18,juce::Justification::centred);
-    // One 4px rail with a quiet highlight, rather than a massive black well.
-    g.setColour(outline.withAlpha(.80f));
-    g.fillRoundedRectangle(cx-2.7f,top,5.4f,span,2.2f);
-    g.setColour(recess.brighter(.15f));
-    g.fillRoundedRectangle(cx-.8f,top+2.f,1.6f,span-4.f,.8f);
-    for(int mark=0;mark<=6;++mark) {
-        const float yy=top+float(mark)*span/6.f;
-        const float tick=mark%3==0?7.f:4.f;
-        g.setColour(secondary.withAlpha(mark%3==0?.46f:.24f));
-        g.drawLine(cx-6.f-tick,yy,cx-6.f,yy,.85f);
-        g.drawLine(cx+6.f,yy,cx+6.f+tick,yy,.85f);
+    const float railTop=float(y)+20.f;
+    const float railBottom=float(y+h)-15.f;
+    const float railLength=std::max(1.f,railBottom-railTop);
+    const bool daylight=themeIndex==2;
+    const juce::Colour wellTop=daylight?juce::Colour::fromRGB(203,207,199)
+                                       :juce::Colour::fromRGB(30,37,55);
+    const juce::Colour wellBottom=daylight?juce::Colour::fromRGB(187,193,185)
+                                          :juce::Colour::fromRGB(17,23,39);
+    const auto well=juce::Rectangle<float>(float(x)+1.f,float(y)+1.f,
+                                           float(w)-2.f,float(h)-2.f);
+
+    // Recessed individual channel, with a restrained rim and inner shadow.
+    g.setGradientFill(juce::ColourGradient(wellTop,well.getX(),well.getY(),
+                                           wellBottom,well.getX(),well.getBottom(),false));
+    g.fillRoundedRectangle(well,6.f);
+    g.setColour(daylight?juce::Colour::fromRGB(149,156,148)
+                        :juce::Colour::fromRGB(46,55,77));
+    g.drawRoundedRectangle(well,6.f,.85f);
+    g.setColour((daylight?juce::Colours::white:juce::Colour::fromRGB(107,122,153))
+                    .withAlpha(daylight?.35f:.15f));
+    g.drawLine(well.getX()+5.f,well.getY()+1.7f,
+               well.getRight()-5.f,well.getY()+1.7f,.75f);
+
+    // Fine calibration ticks to both sides of the sliding metal shuttle.
+    // They remain under the cap rather than competing with the position.
+    for(int mark=0;mark<=16;++mark) {
+        const float yy=railTop+float(mark)*railLength/16.f;
+        const float tick=(mark%4==0)?7.f:4.f;
+        g.setColour((daylight?juce::Colour::fromRGB(76,93,91)
+                              :juce::Colour::fromRGB(133,147,169))
+                        .withAlpha(mark%4==0?.34f:.19f));
+        g.drawLine(cx-8.f-tick,yy,cx-8.f,yy,.7f);
+        g.drawLine(cx+8.f,yy,cx+8.f+tick,yy,.7f);
     }
-    const float thumbY=std::clamp(pos,top+8.f,bottom-8.f);
-    g.setColour(accent.withAlpha(.85f));
-    g.fillRoundedRectangle(cx-1.3f,thumbY,2.6f,bottom-thumbY,1.f);
-    // Brushed metal cap, with one strong index notch.
-    const float capWidth=juce::jlimit(20.f,30.f,float(w)-13.f);
-    const juce::Rectangle<float> cap(cx-capWidth*.5f,thumbY-7.5f,capWidth,15.f);
-    g.setColour(background.withAlpha(.30f));
-    g.fillRoundedRectangle(cap.translated(0.f,2.f),3.f);
+    // Precision etched rail, with a tiny specular edge.
+    g.setColour(daylight?juce::Colour::fromRGB(118,128,121)
+                        :juce::Colour::fromRGB(8,12,23));
+    g.drawLine(cx,railTop,cx,railBottom,2.15f);
+    g.setColour((daylight?juce::Colours::white:juce::Colour::fromRGB(127,142,158))
+                    .withAlpha(daylight?.35f:.26f));
+    g.drawLine(cx-.7f,railTop,cx-.7f,railBottom,.65f);
+
+    const float capWidth=juce::jlimit(20.f,43.f,float(w)*.64f);
+    const float capHeight=juce::jlimit(23.f,43.f,capWidth*1.18f);
+    const float thumbY=std::clamp(pos,railTop+capHeight*.5f,
+                                      railBottom-capHeight*.5f);
+    // The position cue runs beneath the shuttle, just like the reference.
+    g.setColour(accent.withAlpha(daylight?.87f:.96f));
+    g.drawLine(cx,thumbY+capHeight*.48f,cx,railBottom,1.55f);
+
+    const float left=cx-capWidth*.5f,top=thumbY-capHeight*.5f;
+    juce::Path metal;
+    metal.startNewSubPath(left+3.f,top);
+    metal.lineTo(left+capWidth-3.f,top);
+    metal.lineTo(left+capWidth,top+3.5f);
+    metal.lineTo(left+capWidth,top+capHeight-6.f);
+    metal.lineTo(left+capWidth-5.f,top+capHeight);
+    metal.lineTo(left+5.f,top+capHeight);
+    metal.lineTo(left,top+capHeight-6.f);
+    metal.lineTo(left,top+3.5f);
+    metal.closeSubPath();
+    // Real silhouette first: dark cast shadow, bevelled graphite face, and
+    // two narrow specular planes rather than a flat rounded rectangle.
+    g.setColour(juce::Colours::black.withAlpha(daylight?.18f:.43f));
+    g.fillPath(metal,juce::AffineTransform::translation(0.f,2.2f));
     g.setGradientFill(juce::ColourGradient(
-        themeIndex==2?juce::Colour::fromRGB(175,185,172)
-                     :juce::Colour::fromRGB(98,120,122),
-        cap.getX(),cap.getY(),
-        themeIndex==2?juce::Colour::fromRGB(115,130,122)
-                     :juce::Colour::fromRGB(42,55,59),
-        cap.getX(),cap.getBottom(),false));
-    g.fillRoundedRectangle(cap,3.f);
-    g.setColour(accent.withAlpha(.75f));
-    g.drawRoundedRectangle(cap,3.f,1.f);
-    g.setColour(foreground.withAlpha(.94f));
-    g.drawLine(cx-6.f,thumbY,cx+6.f,thumbY,1.5f);
+        daylight?juce::Colour::fromRGB(116,124,121)
+                :juce::Colour::fromRGB(106,119,126),
+        left,top,
+        daylight?juce::Colour::fromRGB(65,75,74)
+                :juce::Colour::fromRGB(27,35,40),
+        left,top+capHeight,false));
+    g.fillPath(metal);
+    g.setColour(daylight?juce::Colour::fromRGB(65,77,74)
+                        :juce::Colour::fromRGB(9,16,22));
+    g.strokePath(metal,juce::PathStrokeType(1.f));
+
+    // Folded top edge and angled side facets give the cap physical depth.
+    juce::Path topFacet;
+    topFacet.startNewSubPath(left+3.7f,top+1.7f);
+    topFacet.lineTo(left+capWidth-3.7f,top+1.7f);
+    topFacet.lineTo(left+capWidth-6.f,top+6.f);
+    topFacet.lineTo(left+6.f,top+6.f);
+    topFacet.closeSubPath();
+    g.setColour((daylight?juce::Colours::white:
+                           juce::Colour::fromRGB(201,218,217)).withAlpha(.25f));
+    g.fillPath(topFacet);
+    g.setColour(juce::Colours::black.withAlpha(.24f));
+    g.drawLine(left+3.f,top+capHeight-7.2f,
+               left+capWidth-3.f,top+capHeight-7.2f,.8f);
+    g.setColour(juce::Colours::white.withAlpha(daylight?.30f:.17f));
+    g.drawLine(left+2.4f,top+7.f,left+2.4f,top+capHeight-8.f,.85f);
+    g.setColour(juce::Colours::black.withAlpha(.32f));
+    g.drawLine(left+capWidth-2.4f,top+7.f,
+               left+capWidth-2.4f,top+capHeight-8.f,.8f);
+
+    // Single luminous horizontal engraving, colour-linked to the effect.
+    g.setColour(juce::Colours::black.withAlpha(.35f));
+    g.drawLine(left+4.f,thumbY+1.7f,left+capWidth-4.f,thumbY+1.7f,1.f);
+    g.setColour(accent.withAlpha(daylight?.89f:.98f));
+    g.drawLine(left+4.5f,thumbY,left+capWidth-4.5f,thumbY,1.15f);
+
+    // Keep the host parameter's numeric feedback, tucked into the channel
+    // header without changing the reference's silhouette.
+    const bool orderFader=control.getComponentID()=="fader-order";
+    const auto readout=orderFader
+        ? juce::String(juce::roundToInt(control.getValue()))
+        : juce::String(juce::roundToInt(control.getValue()*100.))+"%";
+    g.setColour((daylight?juce::Colour::fromRGB(63,76,75)
+                          :juce::Colour::fromRGB(161,175,192)).withAlpha(.82f));
+    g.setFont(juce::Font(juce::jlimit(8.f,10.3f,float(w)*.215f),
+                         juce::Font::bold));
+    g.drawText(readout,x+1,y+2,w-2,12,juce::Justification::centred);
+
 }
 
 void FlangLookAndFeel::drawRotarySlider(juce::Graphics&g,int x,int y,int w,int h,
