@@ -57,6 +57,17 @@ int main(){
         verify(skull&&cog&&preset,"Missing skull, gear or preset control");
         verify(bool(skull->onClick)&&bool(cog->onClick)&&bool(preset->onClick),
                "An interactive header control has no callback");
+        // Compact controls are a deliberate UI contract. A wide gear or
+        // oversized effect row would obscure the hardware-style rack header.
+        verify(cog->getWidth()<=34 && cog->getHeight()<=30,
+               "Settings button regressed to an oversized header block");
+        verify(preset->getWidth()>170 && preset->getRight()<cog->getX(),
+               "Sound library selector must be legible and clear of settings");
+        for(const auto* name:names) {
+            auto* tab=findButton(*editor,name);
+            verify(tab && tab->getHeight()<=24 && tab->getWidth()<=85,
+                   "Effect mode selector is no longer the compact design");
+        }
         verify(byID(*editor,"mod")==nullptr && findButton(*editor,"MOD")==nullptr &&
                findButton(*editor,"BACK")==nullptr,
                "Obsolete MOD drawer button is still present");
