@@ -80,6 +80,35 @@ int main(){
         verify(look->accent==initialAccent,
                "Skull theme click incorrectly changed the effect identity accent");
         verify(morph->isVisible(),"Skull theme change hid morph controls");
+        // The four advanced character parameters must be selectable without
+        // drawing seven simultaneous rotary knobs. Every original APVTS dial
+        // remains instantiated and available to the DAW automation system.
+        std::array<juce::TextButton*,4> macroSelectors{};
+        std::array<juce::Slider*,4> macroDials{};
+        for(int i=0;i<4;++i) {
+            macroSelectors[size_t(i)]=byID(*editor,
+                ("macro-"+juce::String(i)).toRawUTF8());
+            macroDials[size_t(i)]=dynamic_cast<juce::Slider*>(
+                editor->findChildWithID("tone-"+juce::String(i+3)));
+            verify(macroSelectors[size_t(i)] && macroDials[size_t(i)],
+                   "A character macro or its original parameter dial is missing");
+        }
+        for(int i=0;i<4;++i) {
+            click(macroSelectors[size_t(i)],"Character selector does not respond");
+            int visible=0;
+            for(int n=0;n<4;++n)
+                if(macroDials[size_t(n)]->isVisible())++visible;
+            verify(visible==1&&macroDials[size_t(i)]->isVisible(),
+                   "Character selection must expose exactly one correct dial");
+            verify(macroSelectors[size_t(i)]->getToggleState(),
+                   "Character selector did not illuminate its active pad");
+        }
+        click(macroSelectors[1],"Cannot select second character macro");
+        const auto selectedBefore=macroDials[1]->isVisible();
+        click(skull,"Cannot change theme with a contextual macro selected");
+        verify(selectedBefore&&macroDials[1]->isVisible(),
+               "Theme switching changed the selected macro");
+        click(macroSelectors[0],"Cannot restore default macro selector");
 
         // A factory preset must update the engine AND the character controls.
         processor.applyFactoryPreset(7);
@@ -104,7 +133,7 @@ int main(){
         // Shared SkellCore captures the ACTUAL editor child tree at every
         // supported size, across all five modes, with both dry and morphed settings.
         skellcore::ui::headless::Options options;
-        options.project="Skell-Flang v0.9 JUCE UI - roomier theme-separated mixer";
+        options.project="Skell-Flang v1.0 hardware mixer - four dial layout";
         options.minimumColours=12;
         for(const int width:std::array<int,4>{540,720,900,1080})
             for(size_t mode=0;mode<choices.size();++mode)
@@ -132,6 +161,18 @@ int main(){
                 scene.browser=false;
                 options.scenes.push_back(scene);
             }
+        // Visual coverage for all four contextual macros in every effect.
+        // These screenshots capture a real renderer image, not a mockup.
+        for(size_t mode=0;mode<choices.size();++mode)
+            for(int macro=0;macro<4;++macro) {
+                skellcore::ui::headless::Scene scene;
+                scene.id="Skell-Flang-720-"+juce::String(names[mode]).toLowerCase()+
+                         "-macro"+juce::String(macro);
+                scene.width=720;scene.height=500;
+                scene.mode=choices[mode];
+                scene.browser=false;
+                options.scenes.push_back(scene);
+            }
         options.configure=[&](const auto& scene) {
             auto* tab=findButton(*editor,juce::String(
                 scene.mode==0?"CHORUS":scene.mode==1?"FLANGER":
@@ -150,6 +191,17 @@ int main(){
             verify(look->accent==identity,"Theme altered the selected effect color");
             verify(int(processor.parameters.getRawParameterValue("mode")->load())==scene.mode,
                    "Wrong mode in screenshot");
+            // Default scenes show macro 0. Dedicated character scenes select
+            // a specific macro and verify that switching modes did not expose
+            // dormant controls.
+            int expectedMacro=0;
+            if(scene.id.contains("-macro"))
+                expectedMacro=juce::jlimit(0,3,
+                    scene.id.fromLastOccurrenceOf("-macro",false,false).getIntValue());
+            click(macroSelectors[size_t(expectedMacro)],
+                  "Failed to select a renderer macro");
+            verify(macroDials[size_t(expectedMacro)]->isVisible(),
+                   "Renderer selected a hidden macro dial");
             morph->setValue(scene.browser?.76:0.0,juce::sendNotificationSync);
             verify(morph->isVisible()&&dest->isVisible()&&wave->isVisible()&&sync->isVisible(),
                    "Controls hidden after mode or morph change");
@@ -168,6 +220,11 @@ int main(){
                 ++count;
             }
             if(count<25)errors.add("Too few visible controls");
+            int shownDials=0;
+            for(auto* dial:macroDials)if(dial->isVisible())++shownDials;
+            if(shownDials!=1)errors.add("Character dial count must equal one");
+            for(auto* btn:macroSelectors)
+                if(!btn->isVisible())errors.add("Character selector hidden");
             if(dest->getSelectedId()==0)
                 errors.add("Morph destination is blank in a current-mode screenshot");
             // All interactive controls must have independent, non-overlapping
@@ -195,7 +252,8 @@ int main(){
             {"Skell-Flang-540-flanger-unmorphed","Skell-Flang-540-flangus-unmorphed"},
             {"Skell-Flang-540-orbit-unmorphed","Skell-Flang-540-dimension-unmorphed"},
             {"Skell-Flang-720-chorus-unmorphed","Skell-Flang-720-chorus-graphite"},
-            {"Skell-Flang-720-chorus-graphite","Skell-Flang-720-chorus-bone"}
+            {"Skell-Flang-720-chorus-graphite","Skell-Flang-720-chorus-bone"},
+            {"Skell-Flang-720-flangus-macro0","Skell-Flang-720-flangus-macro3"}
         };
         juce::Image probe(juce::Image::ARGB,8,8,true);
         {juce::Graphics g(probe);g.fillAll(juce::Colours::red);}
@@ -207,7 +265,7 @@ int main(){
         for(const auto& error:report.errors)
             std::cerr<<"Visual regression: "<<error.toStdString()<<"\n";
         verify(report.passed(),"Shared SkellCore visual regression failed");
-        verify(report.captured==50,"Expected 50 screenshots including true skull themes");
+        verify(report.captured==70,"Expected 70 screenshots across macro selectors and skins");
         std::cout<<"SkellCore captured "<<report.captured<<" real-editor views\n";
 
         // Keep testing legacy Tuned playback for old FL Studio saves, although

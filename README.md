@@ -114,3 +114,13 @@ The inline MORPH TARGET combo synchronizes its saved parameter **before the firs
 The old draft SkellWorld PR was ported on top of the current v0.9 UI/DSP without downgrading the bundled SkellCore UI renderer. Two small, local-only protocol/worker headers are vendored from skellyruno/skellcore-vst-template, pinned at commit 214badd41c05bfcc7d7528dba5b5984a6d607cc3, so there is no new remote dependency. The themed gear menu now contains a **SKELLWORLD** section with opt-in Join/Leave and read-only connection status. The WorldLink is processor-owned and never touched by processBlock(). No automation, latency or VST3 identity changed.
 
 Release tests now include portable SW1 protocol rejection/mailbox tests and real-time C++ allocation checks for eight internal modes plus morph, and a Windows native-editor smoke test of join/leave with no hub. A live two-instance Windows FL Studio hub round-trip and long listening stress still require actual in-host testing. Distribution remains **Windows VST3 only**.
+
+
+## v0.9.2 — cleaner hardware UI, four active dials
+
+- Retains the existing rack layout, effect modes and SkellWorld setting; refines the buttons and replaces the seven simultaneous bottom rotary controls with **three always-visible essentials (FEEDBACK, TONE, OUTPUT)** plus **one CHARACTER dial**, controlled by four compact selectable macro labels. The four original extra0–extra3 rotary controls and APVTS attachments remain alive and unchanged, just hidden when unselected: no parameter IDs, automation, preset values or DSP algorithms were removed.
+- Active macro is clear, and character labels update automatically as the user selects Chorus / Flanger / Flangus / Orbit / Dimension. Clicking the skull still cycles whole-interface themes while leaving effect identity and the selected character macro unchanged. Host-mode changes default to macro 1, intentionally.
+- Main vertical console faders now use a single narrow rail, six unobtrusive calibration marks, compact brushed-metal thumbs, visible percentage/value readouts, and softer layering. The top skull, preset and settings buttons share a uniform machined-face treatment; preset selector is left-aligned with its own caption and larger selected preset text.
+- Kept the separate, branded popup-menu styling and all Windows/SkellCore/SkellWorld behaviors.
+- SkellCore native editor-render suite expanded to **70 screenshots** covering 5 effects x 4 sizes x 2 morph states, 5 effects x two alternate full themes and 5 effects x four character selectors. Added exact visibility, no-overlap, click action and skull-vs-macro tests.
+- UI-only patch, so Orbit and other DSP mode output are unchanged; physical FL Studio testing remains the acceptance gate.
