@@ -90,6 +90,16 @@ int main(){
         verify(processor.parameters.state.getProperty("presetName").toString()=="Flangus Glow",
                "Preset title was not saved");
         verify(processor.getLatencySamples()==0,"Unexpected host delay compensation");
+        // WorldLink is opt-in and owned by the processor, not the editor.
+        // Exercise a no-hub join/leave while the native editor is alive.
+        verify(!processor.worldLink.requested() && !processor.worldLink.online(),
+               "SkellWorld network connection must be off by default");
+        verify(processor.worldLink.join(),"Opt-in local WorldLink worker failed to start");
+        verify(processor.worldLink.requested(),"Opt-in state not observable");
+        processor.worldLink.leave();
+        verify(!processor.worldLink.requested() && !processor.worldLink.online(),
+               "Leaving WorldLink did not release the connection");
+
 
         // Shared SkellCore captures the ACTUAL editor child tree at every
         // supported size, across all five modes, with both dry and morphed settings.
@@ -218,6 +228,89 @@ int main(){
         }
         verify(processor.meters.confidence.load()>.78f,
                "Legacy tuned tracker lost anti-phase stereo note");
+        // Host-level regression: restore complete VST3 state and confirm
+        // factory mode, preset name and master controls survive save/reload.
+        processor.applyFactoryPreset(9);
+        juce::MemoryBlock session;
+        processor.getStateInformation(session);
+        verify(session.getSize()>100,"VST3 session state was not serialized");
+        processor.applyFactoryPreset(0);
+        verify(int(processor.parameters.getRawParameterValue("mode")->load())==0,
+               "State fixture did not reset to Chorus");
+        processor.setStateInformation(session.getData(),int(session.getSize()));
+        verify(int(processor.parameters.getRawParameterValue("mode")->load())==6,
+               "Restored session lost Flangus mode");
+        verify(processor.parameters.state.getProperty("presetName").toString()=="Flangus Jet",
+               "Restored session lost preset identity");
+
+        // Real processor mono/stereo/variable-block smoke at four host rates;
+        // test abrupt mode changes, crossfeed, feedback and morph automation.
+        const std::array<int,5> visibleModeIds{0,1,6,4,7};
+        const std::array<int,5> blockSizes{1,17,64,257,512};
+        for(const double sampleRate:std::array<double,4>{44100.,48000.,96000.,192000.}) {
+            processor.prepareToPlay(sampleRate,512);
+            verify(processor.getLatencySamples()==0,
+                   "Sample-rate change broke declared zero-latency contract");
+            for(const int channels:std::array<int,2>{1,2})
+                for(const int samples:blockSizes)
+                    for(const int selectedMode:visibleModeIds) {
+                        auto* modeParameter=processor.parameters.getParameter("mode");
+                        modeParameter->setValueNotifyingHost(
+                            modeParameter->convertTo0to1(float(selectedMode)));
+                        auto* feedback=processor.parameters.getParameter("feedback");
+                        feedback->setValueNotifyingHost(
+                            feedback->convertTo0to1(selectedMode==1?-.87f:.81f));
+                        auto* morphParameter=processor.parameters.getParameter("morph");
+                        morphParameter->setValueNotifyingHost(
+                            morphParameter->convertTo0to1(selectedMode==4?.57f:.0f));
+                        juce::AudioBuffer<float> hostAudio(channels,samples);
+                        juce::MidiBuffer noMidi;
+                        for(int block=0;block<5;++block) {
+                            for(int ch=0;ch<channels;++ch)
+                                for(int i=0;i<samples;++i) {
+                                    const double tick=double(block*samples+i);
+                                    const float x=float(.22*std::sin(2.*skellflang::pi*
+                                        (ch?347.:173.)*tick/sampleRate));
+                                    hostAudio.setSample(ch,i,x);
+                                }
+                            processor.processBlock(hostAudio,noMidi);
+                            for(int ch=0;ch<channels;++ch)
+                                for(int i=0;i<samples;++i) {
+                                    const auto y=hostAudio.getSample(ch,i);
+                                    verify(std::isfinite(y),
+                                           "Non-finite output under host-rate/block automation");
+                                    verify(std::abs(y)<=4.f,
+                                           "Unsafe gain under host-rate/block automation");
+                                }
+                        }
+                    }
+            processor.releaseResources();
+        }
+
+        // The audio bypass must return exactly the supplied signal after its
+        // finite smoothing ramp; this also protects saved DAW dry headroom.
+        processor.prepareToPlay(48000.,256);
+        if(auto* bypass=processor.parameters.getParameter("power"))
+            bypass->setValueNotifyingHost(bypass->convertTo0to1(0.f));
+        juce::MidiBuffer noMidi;
+        juce::AudioBuffer<float> audioForBypass(2,256);
+        for(int block=0;block<14;++block) {
+            for(int i=0;i<256;++i) {
+                const float sample=float(.27*std::sin(2.*skellflang::pi*
+                    330.*(block*256+i)/48000.));
+                audioForBypass.setSample(0,i,sample);
+                audioForBypass.setSample(1,i,-sample);
+            }
+            processor.processBlock(audioForBypass,noMidi);
+            if(block==13)for(int i=0;i<256;++i) {
+                const float expected=float(.27*std::sin(2.*skellflang::pi*
+                    330.*(block*256+i)/48000.));
+                verify(std::abs(audioForBypass.getSample(0,i)-expected)<1.e-6f,
+                       "Effect bypass altered left input");
+                verify(std::abs(audioForBypass.getSample(1,i)+expected)<1.e-6f,
+                       "Effect bypass altered right input");
+            }
+        }
         processor.releaseResources();
         return 0;
     }catch(const std::exception& e){
