@@ -24,6 +24,14 @@ State::ParameterLayout SkellFlangAudioProcessor::createLayout(){
     choice(p,"mode","Mode",{"Chorus","Flanger","Vowel (legacy)","Reverse (legacy)","Orbit","Tuned (legacy)","Flangus","Dimension"});
     choice(p,"morphTarget","Morph Target",{"Chorus","Flanger","Vowel (legacy)","Reverse (legacy)","Orbit","Tuned (legacy)","Flangus","Dimension"},1);
     parameter(p,"morph","Morph",0);
+    // Append-only IDs: legacy mode/morph automation must never be renumbered.
+    // Old sessions without layerMode continue to use their original DSP path.
+    boolean(p,"layerMode","Layer Stack Enabled",true);
+    boolean(p,"layerChorus","Layer Chorus",true);
+    boolean(p,"layerFlanger","Layer Flanger");
+    boolean(p,"layerFlangus","Layer Flangus");
+    boolean(p,"layerOrbit","Layer Orbit");
+    boolean(p,"layerDimension","Layer Dimension");
     p.add(std::make_unique<juce::AudioParameterInt>(PID{"order",1},"Order",1,8,3));
     parameter(p,"depth","Depth",.5f);parameter(p,"speed","Speed",.3f);
     parameter(p,"delay","Delay",.5f);parameter(p,"spread","Spread",.5f);
@@ -57,6 +65,11 @@ void SkellFlangAudioProcessor::prepareToPlay(double sr,int) {
     dryMix.reset(rate,.006);wetMix.reset(rate,.006);outputMix.reset(rate,.006);
     powerMix.reset(rate,.005);morphMix.reset(rate,.025);
     crossMix.reset(rate,.006);
+    for(size_t i=0;i<layerGains.size();++i) {
+        layerGains[i].reset(rate,.025);
+        layerGains[i].setCurrentAndTargetValue(
+            raw(layerParameterIDs[i])>.5f?1.f:0.f);
+    }
     // Initialise from restored host state: no startup snap from hardcoded gains.
     dryMix.setCurrentAndTargetValue(curve(raw("dry")));
     wetMix.setCurrentAndTargetValue(curve(raw("wet")));
@@ -100,10 +113,22 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
     if(auto* ph=getPlayHead())if(auto pos=ph->getPosition())
         if(auto bpm=pos->getBpm())if(std::isfinite(*bpm)&&*bpm>=20&&*bpm<=400)
             meters.bpm.store(float(*bpm),std::memory_order_relaxed);
+    const bool layered=raw("layerMode")>.5f;
     const int selected=std::clamp(int(raw("mode")),0,7);
-    if(selected!=active){previous=active;active=selected;remaining=transition;}
+    if(selected!=active){previous=active;active=selected;remaining=layered?0:transition;}
     const int target=std::clamp(int(raw("morphTarget")),0,7);
     const auto primary=settings(active), secondary=settings(target), former=settings(previous);
+    std::array<skellflang::Controls,5> layerControls{};
+    for(size_t k=0;k<layerModes.size();++k) {
+        if(layered)layerControls[k]=settings(layerModes[k]);
+        const bool enabled=raw(layerParameterIDs[k])>.5f;
+        layerGains[k].setTargetValue(layered&&enabled?1.f:0.f);
+    }
+    // Host automation can temporarily toggle all five switches off within
+    // a block: process the focused mode instead of emitting an abrupt silence.
+    const int fallbackLayer=std::find(layerModes.begin(),layerModes.end(),active)
+                               !=layerModes.end()?active:0;
+    const auto fallbackControls=settings(fallbackLayer);
     dryMix.setTargetValue(curve(raw("dry")));wetMix.setTargetValue(curve(raw("wet")));
     outputMix.setTargetValue(juce::Decibels::decibelsToGain(raw("output")));
     powerMix.setTargetValue(raw("power")>.5f?1.f:0.f);
@@ -113,8 +138,8 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
     float peakL=0,peakR=0;
     auto* left=buffer.getWritePointer(0);
     auto* right=channels>1?buffer.getWritePointer(1):nullptr;
-    const bool tracking=active==5 || (target==5 && requestedMorph>.0001f)
-                        || (previous==5 && remaining>0);
+    const bool tracking=!layered && (active==5 || (target==5 && requestedMorph>.0001f)
+                        || (previous==5 && remaining>0));
     if(tracking && right) {
         // Correlation-aware mid/side tracking prevents opposite-polarity stereo
         // from cancelling the tuner input. One block RMS decision with
@@ -134,38 +159,73 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
         const float b=right?(std::isfinite(right[i])?right[i]:0.f):a;
         if(tracking)
             pitchTracker.push(.5f*(a+(pitchFromSide?-b:b)));
-        auto main=controlSmoothers[size_t(active)].next(primary);
-        main.pitch=pitchTracker.pitch();main.confidence=pitchTracker.conf();
-        auto wet=engines.process(active,a,b,main);
-        const float amount=morphMix.getNextValue();
-        std::array<float,2> alternate{};
-        bool haveAlternate=false;
-        if(target!=active && amount>.0001f) {
-            auto alt=controlSmoothers[size_t(target)].next(secondary);
-            alt.pitch=main.pitch;alt.confidence=main.confidence;
-            alternate=engines.process(target,a,b,alt);
-            haveAlternate=true;
-            const auto gains=crossfade.gains(amount);
-            wet={wet[0]*gains[0]+alternate[0]*gains[1],
-                 wet[1]*gains[0]+alternate[1]*gains[1]};
-        }
-        if(remaining>0) {
-            if(previous!=active){
-                auto old=controlSmoothers[size_t(previous)].next(former);
-                old.pitch=main.pitch;old.confidence=main.confidence;
-                const auto previousOut=(haveAlternate && target==previous)?alternate:
-                    engines.process(previous,a,b,old);
-                const float t=1.f-float(remaining)/transition;
-                const auto gains=crossfade.gains(t);
-                wet={previousOut[0]*gains[0]+wet[0]*gains[1],
-                     previousOut[1]*gains[0]+wet[1]*gains[1]};
-            }
-            --remaining;
-        }
-        // Continuous smoothing avoids zipper clicks under fast DAW automation.
-        // ORBIT handles its own ear-to-ear positioning, but advance the ramp.
         const float cross=crossMix.getNextValue();
-        if(active!=4)wet=skellflang::stereoCrossfeed(wet[0],wet[1],cross);
+        std::array<float,2> wet{};
+        if(layered) {
+            float sum=0.f;
+            // Independent DSP state for each engine. Mix only wet signals;
+            // the dry channel is added exactly once below.
+            for(size_t k=0;k<layerModes.size();++k) {
+                const float gain=layerGains[k].getNextValue();
+                if(gain<1.0e-5f)continue;
+                const int mode=layerModes[k];
+                auto controls=controlSmoothers[size_t(mode)].next(layerControls[k]);
+                controls.pitch=pitchTracker.pitch();
+                controls.confidence=pitchTracker.conf();
+                auto effect=engines.process(mode,a,b,controls);
+                // Approved Orbit remains unaltered, including its stereo field.
+                if(mode!=4)
+                    effect=skellflang::stereoCrossfeed(effect[0],effect[1],cross);
+                wet[0]+=gain*effect[0];
+                wet[1]+=gain*effect[1];
+                sum+=gain;
+            }
+            if(sum>1.0e-6f) {
+                wet[0]/=sum;wet[1]/=sum;
+            } else {
+                auto controls=controlSmoothers[size_t(fallbackLayer)].next(
+                    fallbackControls);
+                wet=engines.process(fallbackLayer,a,b,controls);
+                if(fallbackLayer!=4)
+                    wet=skellflang::stereoCrossfeed(wet[0],wet[1],cross);
+            }
+            // Preserve the stored legacy morph parameter but do not apply it
+            // in Layer Stack mode. Its identity remains valid for old projects.
+            morphMix.getNextValue();
+        } else {
+            auto main=controlSmoothers[size_t(active)].next(primary);
+            main.pitch=pitchTracker.pitch();main.confidence=pitchTracker.conf();
+            wet=engines.process(active,a,b,main);
+            const float amount=morphMix.getNextValue();
+            std::array<float,2> alternate{};
+            bool haveAlternate=false;
+            if(target!=active && amount>.0001f) {
+                auto alt=controlSmoothers[size_t(target)].next(secondary);
+                alt.pitch=main.pitch;alt.confidence=main.confidence;
+                alternate=engines.process(target,a,b,alt);
+                haveAlternate=true;
+                const auto gains=crossfade.gains(amount);
+                wet={wet[0]*gains[0]+alternate[0]*gains[1],
+                     wet[1]*gains[0]+alternate[1]*gains[1]};
+            }
+            if(remaining>0) {
+                if(previous!=active){
+                    auto old=controlSmoothers[size_t(previous)].next(former);
+                    old.pitch=main.pitch;old.confidence=main.confidence;
+                    const auto previousOut=(haveAlternate && target==previous)?alternate:
+                        engines.process(previous,a,b,old);
+                    const float t=1.f-float(remaining)/transition;
+                    const auto gains=crossfade.gains(t);
+                    wet={previousOut[0]*gains[0]+wet[0]*gains[1],
+                         previousOut[1]*gains[0]+wet[1]*gains[1]};
+                }
+                --remaining;
+            }
+            // Continuous smoothing avoids zipper clicks under fast DAW automation.
+            // ORBIT handles its own ear-to-ear positioning, but advance the ramp.
+            if(active!=4)wet=skellflang::stereoCrossfeed(wet[0],wet[1],cross);
+    
+        }
         const float dry=dryMix.getNextValue(),wetGain=wetMix.getNextValue();
         const float output=outputMix.getNextValue(),power=powerMix.getNextValue();
         const float l=a*(1-power)+power*output*(dry*a+wetGain*wet[0]);
@@ -205,7 +265,18 @@ void SkellFlangAudioProcessor::getStateInformation(juce::MemoryBlock& m) {
 void SkellFlangAudioProcessor::setStateInformation(const void* ptr,int size) {
     if(auto xml=getXmlFromBinary(ptr,size)) {
         auto tree=juce::ValueTree::fromXml(*xml);
-        if(tree.isValid() && tree.hasType(parameters.state.getType()))parameters.replaceState(tree);
+        if(tree.isValid() && tree.hasType(parameters.state.getType())) {
+            // Pre-layer projects have no layerMode ID. Retain exactly their
+            // legacy Mode + Morph sound when restoring FL Studio projects.
+            bool modern=false;
+            for(int i=0;i<tree.getNumChildren();++i)
+                if(tree.getChild(i).getProperty("id").toString()=="layerMode")
+                    modern=true;
+            parameters.replaceState(tree);
+            if(!modern)
+                if(auto* p=parameters.getParameter("layerMode"))
+                    p->setValueNotifyingHost(p->convertTo0to1(0.f));
+        }
     }
 }
 void SkellFlangAudioProcessor::applyFactoryPreset(int number) {
@@ -243,7 +314,14 @@ void SkellFlangAudioProcessor::applyFactoryPreset(int number) {
         {"cross",p.cross},{"dry",p.dry},{"wet",p.wet},{"feedback",p.feedback},
         {"tone",p.tone},{"extra0",p.extras[0]},{"extra1",p.extras[1]},
         {"extra2",p.extras[2]},{"extra3",p.extras[3]},
-        {"morph",0.f},{"morphTarget",float(p.mode==1?0:1)},{"lfoShape",0.f},
+        {"morph",0.f},{"morphTarget",float(p.mode==1?0:1)},
+        {"layerMode",1.f},
+        {"layerChorus",p.mode==0?1.f:0.f},
+        {"layerFlanger",p.mode==1?1.f:0.f},
+        {"layerFlangus",p.mode==6?1.f:0.f},
+        {"layerOrbit",p.mode==4?1.f:0.f},
+        {"layerDimension",p.mode==7?1.f:0.f},
+        {"lfoShape",0.f},
         {"lfoSync",0.f},{"output",0.f},{"power",1.f}
     };
     for(const auto& edit:edits)if(auto* value=parameters.getParameter(edit.id)){
