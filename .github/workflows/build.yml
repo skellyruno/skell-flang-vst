@@ -40,13 +40,17 @@ jobs:
           $test = Get-ChildItem build -Recurse -File -Filter '*UiSmoke.exe' | Select-Object -First 1
           if (-not $test) { throw 'UI smoke test program was not built' }
           & $test.FullName
-          if ($LASTEXITCODE -ne 0) { throw "UI smoke test failed (exit $LASTEXITCODE)" }
+          if ($LASTEXITCODE -ne 0) { throw "Quick4 native UI test failed (exit $LASTEXITCODE)" }
+          & $test.FullName --full --output build/ui-smoke-full
+          if ($LASTEXITCODE -ne 0) { throw "Full 70-scene native UI and host test failed (exit $LASTEXITCODE)" }
       - name: Save real editor renders for layout inspection
         if: always()
         uses: actions/upload-artifact@v6
         with:
           name: Skell-Flang-UI-Renders
-          path: build/ui-smoke/*.png
+          path: |
+            build/ui-smoke/*.png
+            build/ui-smoke-full/*.png
           if-no-files-found: ignore
       - name: Host and editor validation (pluginval)
         uses: Tracktion/pluginval/validate@v2.0.0-beta3
