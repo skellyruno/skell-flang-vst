@@ -24,14 +24,6 @@ State::ParameterLayout SkellFlangAudioProcessor::createLayout(){
     choice(p,"mode","Mode",{"Chorus","Flanger","Vowel (legacy)","Reverse (legacy)","Orbit","Tuned (legacy)","Flangus","Dimension"});
     choice(p,"morphTarget","Morph Target",{"Chorus","Flanger","Vowel (legacy)","Reverse (legacy)","Orbit","Tuned (legacy)","Flangus","Dimension"},1);
     parameter(p,"morph","Morph",0);
-    // Append-only IDs: legacy mode/morph automation must never be renumbered.
-    // Old sessions without layerMode continue to use their original DSP path.
-    boolean(p,"layerMode","Layer Stack Enabled",true);
-    boolean(p,"layerChorus","Layer Chorus",true);
-    boolean(p,"layerFlanger","Layer Flanger");
-    boolean(p,"layerFlangus","Layer Flangus");
-    boolean(p,"layerOrbit","Layer Orbit");
-    boolean(p,"layerDimension","Layer Dimension");
     p.add(std::make_unique<juce::AudioParameterInt>(PID{"order",1},"Order",1,8,3));
     parameter(p,"depth","Depth",.5f);parameter(p,"speed","Speed",.3f);
     parameter(p,"delay","Delay",.5f);parameter(p,"spread","Spread",.5f);
@@ -45,6 +37,14 @@ State::ParameterLayout SkellFlangAudioProcessor::createLayout(){
     choice(p,"tnSource","Tune Source",{"Follow","Key"});
     choice(p,"tnRoot","Root",{"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"});
     choice(p,"tnScale","Scale",{"Major","Minor","Pentatonic","Chromatic"});
+    // Append-only IDs: legacy mode/morph automation must never be renumbered.
+    // Old sessions without layerMode continue to use their original DSP path.
+    boolean(p,"layerMode","Layer Stack Enabled",true);
+    boolean(p,"layerChorus","Layer Chorus",true);
+    boolean(p,"layerFlanger","Layer Flanger");
+    boolean(p,"layerFlangus","Layer Flangus");
+    boolean(p,"layerOrbit","Layer Orbit");
+    boolean(p,"layerDimension","Layer Dimension");
     return p;
 }
 SkellFlangAudioProcessor::SkellFlangAudioProcessor()
