@@ -729,7 +729,7 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
                 if(const auto* value=processor.parameters.getRawParameterValue(flag))
                     if(value->load(std::memory_order_relaxed)>.5f)++count;
             if(wasEnabled&&count<=1) {
-                button.setToggleState(true,juce::dontSendNotification);
+                tabs[size_t(i)].setToggleState(true,juce::dontSendNotification);
                 return;
             }
             const auto edit=[this](const char* parameterId,float value) {
@@ -755,6 +755,10 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
                         }
                     }
             }
+            // A hand-built combination must not keep displaying its
+            // original single-effect factory preset as if unmodified.
+            processor.parameters.state.setProperty("presetName","CUSTOM",nullptr);
+            preset.setButtonText("CUSTOM");
             updateMode();
         };
     }
