@@ -279,6 +279,60 @@ int main(){
         verify(report.captured==70,"Expected 70 screenshots across macro selectors and skins");
         std::cout<<"SkellCore captured "<<report.captured<<" real-editor views\n";
 
+        // Capture the ACTUAL JUCE popup window, which is a separate top-level
+        // component and therefore isn't included in editor-only snapshots.
+        // Kept separate from the 70 baseline scenes to avoid altering counts.
+        editor->setSize(720,500);
+        for(int i=0;i<3 && look->themeIndex!=0;++i)
+            click(skull,"Could not select Midnight for menu snapshot");
+        click(findButton(*editor,"CHORUS"),"Cannot select Chorus for menu capture");
+        click(preset,"Cannot open the actual Skell-Flang preset popup");
+        juce::MessageManager::getInstance()->runDispatchLoopUntil(200);
+        auto& desktop=juce::Desktop::getInstance();
+        juce::Component* menuWindow=nullptr;
+        for(int i=0;i<desktop.getNumComponents();++i) {
+            auto* candidate=desktop.getComponent(i);
+            if(!candidate || candidate==editor.get())continue;
+            std::cout<<"Popup inspection: "<<candidate->getName().toStdString()
+                     <<" width="<<candidate->getWidth()
+                     <<" height="<<candidate->getHeight()
+                     <<" showing="<<candidate->isShowing()<<"\\n";
+            if(candidate->isShowing() && candidate->getWidth()>=180 &&
+               candidate->getHeight()>=150 &&
+               candidate->getWidth()<=750 && candidate->getHeight()<=800)
+                menuWindow=candidate;
+        }
+        if(menuWindow) {
+            const auto editorImage=editor->createComponentSnapshot(
+                editor->getLocalBounds(),true);
+            const auto menuImage=menuWindow->createComponentSnapshot(
+                menuWindow->getLocalBounds(),true);
+            verify(editorImage.isValid()&&menuImage.isValid(),
+                   "JUCE popup/editor snapshot failed");
+            const int imageWidth=juce::jmax(960,746+menuImage.getWidth()+24);
+            const int imageHeight=juce::jmax(530,menuImage.getHeight()+95);
+            juce::Image combined(juce::Image::RGB,imageWidth,imageHeight,true);
+            juce::Graphics canvas(combined);
+            canvas.fillAll(juce::Colour::fromRGB(7,12,14));
+            canvas.drawImageAt(editorImage,12,18);
+            canvas.drawImageAt(menuImage,746,52);
+            canvas.setColour(look->secondary);
+            canvas.setFont(juce::Font(12.f,juce::Font::bold));
+            canvas.drawText("PRESET MENU  /  ACTUAL JUCE POPUP",746,24,
+                            imageWidth-756,19,juce::Justification::centredLeft);
+            const auto file=output.getChildFile("Skell-Flang-720-Preset-Menu-OPEN.png");
+            verify(skellcore::ui::headless::writePng(combined,file),
+                   "Could not save real preset menu screenshot");
+            std::cout<<"Saved REAL preset popup screenshot: "
+                     <<file.getFullPathName()<<"\\n";
+        } else {
+            std::cout<<"WARN: The native JUCE popup did not appear as an"
+                        " inspectable desktop component.\\n";
+        }
+        juce::PopupMenu::dismissAllActiveMenus();
+        juce::MessageManager::getInstance()->runDispatchLoopUntil(80);
+
+
         // Keep testing legacy Tuned playback for old FL Studio saves, although
         // that mode no longer appears as a tab in the current interface.
         if(auto* v=processor.parameters.getParameter("mode"))
