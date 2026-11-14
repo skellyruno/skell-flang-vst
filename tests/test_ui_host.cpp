@@ -255,6 +255,12 @@ int main(int argc,char** argv){
             for(int i=0;i<3&&look->themeIndex!=wanted;++i)
                 click(skull,"Cannot apply scene theme");
             verify(look->themeIndex==wanted,"Wrong screenshot theme");
+            const juce::String expectedName=processor.parameters.state
+                .getProperty("presetName","INIT").toString();
+            verify(preset->getButtonText()==expectedName,
+                   "Preset bar shows a stale factory/custom name");
+            verify(scene.browser ? expectedName=="CUSTOM" : expectedName!="CUSTOM",
+                   "Solo/stacked preset labels were not restored correctly");
             const juce::Colour tint=desired==0?juce::Colour::fromRGB(75,230,172):
                  desired==1?juce::Colour::fromRGB(60,203,245):
                  desired==6?juce::Colour::fromRGB(154,244,77):
