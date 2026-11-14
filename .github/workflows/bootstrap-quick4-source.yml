@@ -1,9 +1,7 @@
 name: One-time Skell Flang offline source transfer
 # Repository checkout bytes only; never screenshots or UI rendering in Actions.
+# Source transferred once. Manual-only fallback; screenshots build locally.
 on:
-  push:
-    paths:
-      - '.github/workflows/bootstrap-quick4-source.yml'
   workflow_dispatch:
 jobs:
   source:
