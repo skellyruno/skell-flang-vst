@@ -400,6 +400,61 @@ int main(int argc,char** argv){
         verify(processor.parameters.state.getProperty("presetName").toString()=="Flangus Jet",
                "Restored session lost preset identity");
 
+        // New layer flags must round-trip through a VST3 project state.
+        processor.applyFactoryPreset(7); // Flangus Glow
+        auto* orbitFlag=processor.parameters.getParameter("layerOrbit");
+        orbitFlag->setValueNotifyingHost(orbitFlag->convertTo0to1(1.f));
+        juce::MemoryBlock layerSession;
+        processor.getStateInformation(layerSession);
+        processor.applyFactoryPreset(0);
+        processor.setStateInformation(layerSession.getData(),int(layerSession.getSize()));
+        verify(processor.parameters.getRawParameterValue("layerMode")->load()>.5f &&
+               processor.parameters.getRawParameterValue("layerFlangus")->load()>.5f &&
+               processor.parameters.getRawParameterValue("layerOrbit")->load()>.5f,
+               "Layer stack was not restored from saved FL Studio state");
+
+        // Audio must actually differ with two independent engines, without
+        // duplicated dry gain or nonfinite output. Compare identical inputs.
+        const auto measure=[&](bool layeredFlanger) {
+            processor.applyFactoryPreset(0);
+            auto* flangerFlag=processor.parameters.getParameter("layerFlanger");
+            flangerFlag->setValueNotifyingHost(
+                flangerFlag->convertTo0to1(layeredFlanger?1.f:0.f));
+            processor.prepareToPlay(48000.,128);
+            juce::AudioBuffer<float> signal(2,128);
+            juce::MidiBuffer none;
+            std::array<float,512> tail{};
+            for(int block=0;block<150;++block) {
+                for(int i=0;i<128;++i) {
+                    const double t=double(block*128+i)/48000.;
+                    const float input=float(.21*std::sin(2.*skellflang::pi*173.*t)
+                                           +.07*std::sin(2.*skellflang::pi*461.*t));
+                    signal.setSample(0,i,input);
+                    signal.setSample(1,i,-input);
+                }
+                processor.processBlock(signal,none);
+                for(int i=0;i<128;++i) {
+                    const float l=signal.getSample(0,i);
+                    const float r=signal.getSample(1,i);
+                    verify(std::isfinite(l)&&std::isfinite(r),
+                           "Stacking created a non-finite audio sample");
+                    verify(std::abs(l)<4.f&&std::abs(r)<4.f,
+                           "Stacking exceeded safe normal headroom");
+                    if(block>=146)
+                        tail[size_t((block-146)*128+i)]=l;
+                }
+            }
+            processor.releaseResources();
+            return tail;
+        };
+        const auto solo=measure(false);
+        const auto stacked=measure(true);
+        double audibleDifference=0.;
+        for(size_t i=0;i<solo.size();++i)
+            audibleDifference+=std::abs(double(solo[i])-stacked[i]);
+        verify(audibleDifference>.05,
+               "Layer Stack enabled two flags but did not combine two engines");
+
         // Real processor mono/stereo/variable-block smoke at four host rates;
         // test abrupt mode changes, crossfeed, feedback and morph automation.
         const std::array<int,5> visibleModeIds{0,1,6,4,7};
