@@ -27,7 +27,15 @@ void click(juce::TextButton* b,const char* error){
 }
 }
 
-int main(){
+int main(int argc,char** argv){
+    bool full=false;
+    juce::String capturePath="build/ui-smoke";
+    for(int i=1;i<argc;++i){
+        const juce::String arg(argv[i]);
+        if(arg=="--full")full=true;
+        else if(arg=="--output" && i+1<argc)capturePath=argv[++i];
+        else {std::cerr<<"Unknown Quick4 argument: "<<arg.toStdString()<<"\n";return 2;}
+    }
     try {
         juce::ScopedJuceInitialiser_GUI gui;
         SkellFlangAudioProcessor processor;
@@ -184,6 +192,16 @@ int main(){
                 scene.browser=false;
                 options.scenes.push_back(scene);
             }
+        if(!full) {
+            // Four genuine rendered states: default, alternate effect, active,
+            // and one of the plugin's real physical colour skins.
+            options.scenes = {
+                {"Skell-Flang-720-chorus-unmorphed",720,500,0,false},
+                {"Skell-Flang-720-flanger-unmorphed",720,500,1,false},
+                {"Skell-Flang-720-chorus-morphed",720,500,0,true},
+                {"Skell-Flang-720-chorus-graphite",720,500,0,false}
+            };
+        }
         options.configure=[&](const auto& scene) {
             auto* tab=findButton(*editor,juce::String(
                 scene.mode==0?"CHORUS":scene.mode==1?"FLANGER":
@@ -266,17 +284,47 @@ int main(){
             {"Skell-Flang-720-chorus-graphite","Skell-Flang-720-chorus-bone"},
             {"Skell-Flang-720-flangus-macro0","Skell-Flang-720-flangus-macro3"}
         };
+        if(!full) {
+            options.mustDiffer = {
+              {"Skell-Flang-720-chorus-unmorphed","Skell-Flang-720-flanger-unmorphed"},
+              {"Skell-Flang-720-chorus-unmorphed","Skell-Flang-720-chorus-morphed"},
+              {"Skell-Flang-720-chorus-unmorphed","Skell-Flang-720-chorus-graphite"}
+            };
+        }
         juce::Image probe(juce::Image::ARGB,8,8,true);
         {juce::Graphics g(probe);g.fillAll(juce::Colours::red);}
         verify(probe.getPixelAt(4,4).getRed()>200,
                "CI runner software rendering unavailable");
 
-        const auto output=juce::File::getCurrentWorkingDirectory().getChildFile("build/ui-smoke");
+        const auto output=juce::File::isAbsolutePath(capturePath)
+            ? juce::File(capturePath)
+            : juce::File::getCurrentWorkingDirectory().getChildFile(capturePath);
         const auto report=skellcore::ui::headless::render(*editor,output,options);
         for(const auto& error:report.errors)
             std::cerr<<"Visual regression: "<<error.toStdString()<<"\n";
         verify(report.passed(),"Shared SkellCore visual regression failed");
-        verify(report.captured==70,"Expected 70 screenshots across macro selectors and skins");
+        verify(report.captured==(full?70:4),"Wrong screenshot count for selected mode");
+        if(!full) {
+            const std::array<const char*,4> names{{
+                "Skell-Flang-720-chorus-unmorphed",
+                "Skell-Flang-720-flanger-unmorphed",
+                "Skell-Flang-720-chorus-morphed",
+                "Skell-Flang-720-chorus-graphite"}};
+            constexpr int w=600,h=420;
+            juce::Image sheet(juce::Image::RGB,2*w,2*h,true);
+            juce::Graphics g(sheet);
+            g.fillAll(juce::Colour(0xff070b0f));
+            for(size_t i=0;i<names.size();++i) {
+                const auto image=juce::ImageFileFormat::loadFrom(
+                    output.getChildFile(juce::String(names[i])+".png"));
+                verify(image.isValid(),"Missing real Flang scene for Quick4 sheet");
+                g.drawImageWithin(image,int(i%2)*w+7,int(i/2)*h+7,
+                                  w-14,h-14,juce::RectanglePlacement::centred);
+            }
+            verify(skellcore::ui::headless::writePng(
+                       sheet,output.getChildFile("contact-sheet.png")),
+                   "Could not save Flang Quick4 overview");
+        }
         std::cout<<"SkellCore captured "<<report.captured<<" real-editor views\n";
 
         // Keep testing legacy Tuned playback for old FL Studio saves, although
