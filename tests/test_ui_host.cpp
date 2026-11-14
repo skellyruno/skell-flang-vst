@@ -226,9 +226,9 @@ int main(int argc,char** argv){
             // Four genuine rendered states: default, alternate effect, active,
             // and one of the plugin's real physical colour skins.
             options.scenes = {
-                {"Skell-Flang-720-chorus-unmorphed",720,500,0,0,false},
-                {"Skell-Flang-720-flanger-unmorphed",720,500,0,1,false},
-                {"Skell-Flang-720-chorus-morphed",720,500,0,0,true},
+                {"Skell-Flang-720-chorus-solo",720,500,0,0,false},
+                {"Skell-Flang-720-flanger-solo",720,500,0,1,false},
+                {"Skell-Flang-720-chorus-stacked",720,500,0,0,true},
                 {"Skell-Flang-720-chorus-graphite",720,500,0,0,false}
             };
         }
@@ -283,14 +283,14 @@ int main(int argc,char** argv){
                     errors.add("Control too small: "+c->getComponentID());
                 ++count;
             }
-            if(count<25)errors.add("Too few visible controls");
+            if(count<23)errors.add("Too few visible controls");
             int shownDials=0;
             for(auto* dial:macroDials)if(dial->isVisible())++shownDials;
             if(shownDials!=1)errors.add("Character dial count must equal one");
             for(auto* btn:macroSelectors)
                 if(!btn->isVisible())errors.add("Character selector hidden");
-            if(dest->getSelectedId()==0)
-                errors.add("Morph destination is blank in a current-mode screenshot");
+            if(wave->getSelectedId()==0)
+                errors.add("Waveform selection is blank");
             // All interactive controls must have independent, non-overlapping
             // mouse hit areas, even at the compact 540 px editor width.
             for(int i=0;i<editor->getNumChildComponents();++i) {
@@ -321,9 +321,9 @@ int main(int argc,char** argv){
         };
         if(!full) {
             options.mustDiffer = {
-              {"Skell-Flang-720-chorus-unmorphed","Skell-Flang-720-flanger-unmorphed"},
-              {"Skell-Flang-720-chorus-unmorphed","Skell-Flang-720-chorus-morphed"},
-              {"Skell-Flang-720-chorus-unmorphed","Skell-Flang-720-chorus-graphite"}
+              {"Skell-Flang-720-chorus-solo","Skell-Flang-720-flanger-solo"},
+              {"Skell-Flang-720-chorus-solo","Skell-Flang-720-chorus-stacked"},
+              {"Skell-Flang-720-chorus-solo","Skell-Flang-720-chorus-graphite"}
             };
         }
         juce::Image probe(juce::Image::ARGB,8,8,true);
@@ -341,9 +341,9 @@ int main(int argc,char** argv){
         verify(report.captured==(full?70:4),"Wrong screenshot count for selected mode");
         if(!full) {
             const std::array<const char*,4> names{{
-                "Skell-Flang-720-chorus-unmorphed",
-                "Skell-Flang-720-flanger-unmorphed",
-                "Skell-Flang-720-chorus-morphed",
+                "Skell-Flang-720-chorus-solo",
+                "Skell-Flang-720-flanger-solo",
+                "Skell-Flang-720-chorus-stacked",
                 "Skell-Flang-720-chorus-graphite"}};
             constexpr int w=600,h=420;
             juce::Image sheet(juce::Image::RGB,2*w,2*h,true);
