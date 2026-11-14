@@ -947,6 +947,11 @@ void SkellFlangAudioProcessorEditor::updateMode() {
         layers[i]=legacy?(visibleModes[i]==selected):
                        (enabled&&enabled->load(std::memory_order_relaxed)>.5f);
     }
+    // Factory presets and host state loads may not change the focused mode:
+    // update the visible preset title synchronously, not 33 ms later by timer.
+    const juce::String presetName=processor.parameters.state
+        .getProperty("presetName","INIT").toString();
+    if(preset.getButtonText()!=presetName)preset.setButtonText(presetName);
     const bool modeChanged=selected!=shownMode;
     const bool layersChanged=layers!=shownLayers;
     if(!modeChanged&&!layersChanged&&theme==shownTheme)return;
