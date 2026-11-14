@@ -1,0 +1,27 @@
+name: One-time Skell Flang offline source transfer
+# Repository checkout bytes only; never screenshots or UI rendering in Actions.
+on:
+  push:
+    paths:
+      - '.github/workflows/bootstrap-quick4-source.yml'
+  workflow_dispatch:
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Export source and original assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          git archive HEAD -o skell-flang-local-source.tar
+          gzip -n skell-flang-local-source.tar
+          git rev-parse HEAD > source-commit.txt
+      - uses: actions/upload-artifact@v6
+        with:
+          name: SkellFlang-one-time-local-source
+          path: |
+            skell-flang-local-source.tar.gz
+            source-commit.txt
+          retention-days: 7
+          if-no-files-found: error
