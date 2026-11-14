@@ -196,10 +196,10 @@ int main(int argc,char** argv){
             // Four genuine rendered states: default, alternate effect, active,
             // and one of the plugin's real physical colour skins.
             options.scenes = {
-                {"Skell-Flang-720-chorus-unmorphed",720,500,0,false},
-                {"Skell-Flang-720-flanger-unmorphed",720,500,1,false},
-                {"Skell-Flang-720-chorus-morphed",720,500,0,true},
-                {"Skell-Flang-720-chorus-graphite",720,500,0,false}
+                {"Skell-Flang-720-chorus-unmorphed",720,500,0,0,false},
+                {"Skell-Flang-720-flanger-unmorphed",720,500,0,1,false},
+                {"Skell-Flang-720-chorus-morphed",720,500,0,0,true},
+                {"Skell-Flang-720-chorus-graphite",720,500,0,0,false}
             };
         }
         options.configure=[&](const auto& scene) {
