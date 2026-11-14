@@ -7,7 +7,7 @@ This repository participates in SkellCore's four-scene local UI QA. **Don't gene
 - Default: exactly **four** actual states: `Skell-Flang-720-chorus-unmorphed, Skell-Flang-720-flanger-unmorphed, Skell-Flang-720-chorus-morphed, Skell-Flang-720-chorus-graphite`
 - `--full`: opt-in previous comprehensive UI regression
 - Special case: real effect/morph and graphite skin
-- Current verification: **local native compilation pending**. A committed renderer is not proof of a successful build on the latest revision.
+- Current verification: ****VERIFIED** real JUCE Linux native compile + actual 4/4 Quick4 render (2.77 seconds under Xvfb; build time separate)**. A committed renderer is not proof of a successful build on the latest revision.
 
 Common entrypoint: `skellcore-vst-template/tools/quick4_projects.py --plugin skell-flang-vst --project /path/to/skell-flang-vst --juce /path/to/JUCE --skellcore /path/to/skellcore-vst-template --output /tmp/skell-flang-vst-quick4`.
 
