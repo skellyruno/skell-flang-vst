@@ -384,6 +384,28 @@ void FlangLookAndFeel::drawButtonBackground(juce::Graphics&g,juce::Button&button
         return;
     }
 
+    if(id=="lfo-sync") {
+        // A compact metronome / circular-arrows glyph, driven by the real
+        // lfoSync APVTS state rather than decorative animation.
+        g.setColour(selected?accent.withAlpha(.19f):surface);
+        g.fillRoundedRectangle(b,5.5f);
+        g.setColour(selected?accent.withAlpha(.94f):outline.withAlpha(.90f));
+        g.drawRoundedRectangle(b,5.5f,selected?1.25f:.8f);
+        const float cx=b.getCentreX(),cy=b.getCentreY();
+        g.setColour(selected?accent:secondary.withAlpha(.83f));
+        juce::Path pulse;
+        pulse.startNewSubPath(cx-8.3f,cy-2.f);
+        pulse.lineTo(cx-4.6f,cy-2.f);
+        pulse.lineTo(cx-2.f,cy-6.f);
+        pulse.lineTo(cx+1.6f,cy+5.7f);
+        pulse.lineTo(cx+4.8f,cy+1.5f);
+        pulse.lineTo(cx+8.2f,cy+1.5f);
+        g.strokePath(pulse,juce::PathStrokeType(1.75f,
+                     juce::PathStrokeType::curved,juce::PathStrokeType::rounded));
+        if(selected)g.fillEllipse(cx+7.3f,cy-7.5f,2.5f,2.5f);
+        return;
+    }
+
     if(id=="skull"||id=="settings") {
         // Compact, precisely bounded utility buttons; no oversized square
         // around the gear. The skull remains a functional three-theme switch.
@@ -484,23 +506,28 @@ void FlangLookAndFeel::drawButtonBackground(juce::Graphics&g,juce::Button&button
     }
 
     const float radius=modeButton?5.3f:(macroButton?4.f:5.f);
+    const int modeIndex=modeButton?juce::jlimit(0,7,
+         id.fromFirstOccurrenceOf("mode-",false,false).getIntValue()):0;
+    const auto buttonAccent=modeButton?tints[modeIndex]:accent;
+    const bool focused=modeButton&&bool(button.getProperties().getWithDefault(
+         "focused",false));
     g.setColour(juce::Colours::black.withAlpha(daylight?.05f:.25f));
     g.fillRoundedRectangle(b.translated(0.f,1.f),radius);
     const auto top=selected?surface.brighter(.32f):
                    (hover?surface.brighter(.22f):surface.brighter(.10f));
-    const auto bottom=selected?accent.withAlpha(daylight?.08f:.12f):
+    const auto bottom=selected?buttonAccent.withAlpha(daylight?.08f:.16f):
                       (hover?surface:recess);
     g.setGradientFill(juce::ColourGradient(
         top,b.getX(),b.getY(),bottom,b.getX(),b.getBottom(),false));
     g.fillRoundedRectangle(b,radius);
-    g.setColour(selected?accent.withAlpha(modeButton?.73f:.82f):
-                hover?accent.withAlpha(.46f):outline.withAlpha(.77f));
-    g.drawRoundedRectangle(b,radius,selected?1.13f:.82f);
+    g.setColour(selected?buttonAccent.withAlpha(focused?.96f:.70f):
+                hover?buttonAccent.withAlpha(.55f):outline.withAlpha(.77f));
+    g.drawRoundedRectangle(b,radius,selected?focused?1.50f:1.1f:.82f);
     g.setColour(juce::Colours::white.withAlpha(daylight?.24f:.08f));
     g.drawLine(b.getX()+6.f,b.getY()+1.4f,
                b.getRight()-6.f,b.getY()+1.4f,.65f);
     if(modeButton&&selected) {
-        g.setColour(accent.withAlpha(.89f));
+        g.setColour(buttonAccent.withAlpha(.94f));
         g.fillRoundedRectangle(b.getX()+5.1f,b.getCentreY()-4.5f,
                                1.7f,9.f,.85f);
     }
@@ -513,7 +540,7 @@ void FlangLookAndFeel::drawButtonBackground(juce::Graphics&g,juce::Button&button
 void FlangLookAndFeel::drawButtonText(juce::Graphics& g,
                                      juce::TextButton& button,bool hover,bool down) {
     const auto id=button.getComponentID();
-    if(id=="skull"||id=="settings")return;
+    if(id=="skull"||id=="settings"||id=="lfo-sync")return;
     const auto bounds=button.getLocalBounds();
     if(id=="preset") {
         const float height=float(bounds.getHeight());
@@ -553,7 +580,7 @@ void FlangLookAndFeel::drawButtonText(juce::Graphics& g,
 }
 
 juce::Font FlangLookAndFeel::getPopupMenuFont() {
-    return juce::Font(12.2f);
+    return juce::Font(11.0f);
 }
 void FlangLookAndFeel::drawPopupMenuBackground(juce::Graphics&g,int w,int h) {
     g.setGradientFill(juce::ColourGradient(
@@ -570,7 +597,7 @@ void FlangLookAndFeel::drawPopupMenuSectionHeader(juce::Graphics&g,
     g.setColour(recess.withAlpha(.80f));
     g.fillRect(area.reduced(1,2));
     g.setColour(accent.withAlpha(.90f));
-    g.setFont(juce::Font(10.2f,juce::Font::bold));
+    g.setFont(juce::Font(9.2f,juce::Font::bold));
     g.drawFittedText(title.toUpperCase(),area.reduced(14,1),
                      juce::Justification::centredLeft,1);
 }
@@ -594,7 +621,7 @@ void FlangLookAndFeel::drawPopupMenuItem(juce::Graphics&g,
     juce::Colour fg=overrideColour?*overrideColour:foreground;
     if(!enabled)fg=fg.withAlpha(.38f);
     g.setColour(fg);
-    g.setFont(juce::Font(12.f,highlighted?juce::Font::bold:juce::Font::plain));
+    g.setFont(juce::Font(10.8f,highlighted?juce::Font::bold:juce::Font::plain));
     g.drawFittedText(caption,area.withTrimmedLeft(28).withTrimmedRight(20),
                      juce::Justification::centredLeft,1);
     if(ticked) {
@@ -611,8 +638,8 @@ void FlangLookAndFeel::drawPopupMenuItem(juce::Graphics&g,
 }
 void FlangLookAndFeel::getIdealPopupMenuItemSize(
         const juce::String& text,bool separator,int,int& width,int& height) {
-    width=separator?30:juce::jmax(198,juce::roundToInt(juce::Font(12.f).getStringWidthFloat(text))+65);
-    height=separator?8:29;
+    width=separator?30:juce::jmax(172,juce::roundToInt(juce::Font(10.8f).getStringWidthFloat(text))+48);
+    height=separator?7:24;
 }
 SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioProcessor& p)
 : AudioProcessorEditor(&p),processor(p) {
@@ -788,7 +815,7 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
             menu.addSubMenu(groups[group],sounds,true);
         }
         menu.showMenuAsync(juce::PopupMenu::Options()
-                             .withTargetComponent(&preset).withMinimumWidth(256)
+                             .withTargetComponent(&preset).withMinimumWidth(201)
                              .withMaximumNumColumns(1),
             [safeEditor](int result){
                 if(safeEditor&&result>=1&&result<=16) {
@@ -820,7 +847,7 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
             : (processor.worldLink.requested()?"Connecting to local hub":"Offline - opt in to connect"),
             false,false);
         menu.showMenuAsync(juce::PopupMenu::Options()
-                               .withTargetComponent(&settings).withMinimumWidth(242)
+                               .withTargetComponent(&settings).withMinimumWidth(201)
                                .withMaximumNumColumns(1),
             [safeEditor](int item){
                 if(!safeEditor)return;
