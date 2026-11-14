@@ -37,7 +37,7 @@ if(SKELLFLANG_BUILD_UI_SMOKE)
   juce_generate_juce_header(SkellFlangUiSmoke)
   target_sources(SkellFlangUiSmoke PRIVATE tests/test_ui_host.cpp)
   target_compile_features(SkellFlangUiSmoke PRIVATE cxx_std_17)
-  target_compile_definitions(SkellFlangUiSmoke PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+  target_compile_definitions(SkellFlangUiSmoke PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1)
   target_link_libraries(SkellFlangUiSmoke PRIVATE SkellFlang SkellCore::UIRenderer juce::juce_audio_utils juce::juce_gui_extra)
 endif()
 
