@@ -32,6 +32,10 @@ public:
     void getStateInformation(juce::MemoryBlock&) override;
     void setStateInformation(const void*,int) override;
     void applyFactoryPreset(int);
+    // New layered mode is additive; these exact parameter IDs are never recycled.
+    static constexpr std::array<int,5> layerModes{{0,1,6,4,7}};
+    static constexpr std::array<const char*,5> layerParameterIDs{{
+        "layerChorus","layerFlanger","layerFlangus","layerOrbit","layerDimension"}};
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     // Opt-in background-only presence. The audio callback never calls WorldLink.
     skellcore::world::WorldLink worldLink{"skell.flang","Skell-Flang"};
@@ -52,6 +56,7 @@ private:
     skellflang::EngineBank engines;
     skellflang::PitchTracker pitchTracker;
     skellflang::EqualPowerBlend crossfade;
+    std::array<juce::SmoothedValue<float,juce::ValueSmoothingTypes::Linear>,5> layerGains;
     std::array<skellflang::ControlSmoother,8> controlSmoothers;
     juce::SmoothedValue<float,juce::ValueSmoothingTypes::Linear> dryMix,wetMix,outputMix,powerMix,morphMix,crossMix;
     int active=0,previous=0,remaining=0,transition=1;
