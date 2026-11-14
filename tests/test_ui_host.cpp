@@ -121,6 +121,9 @@ int main(int argc,char** argv){
         processor.applyFactoryPreset(0);
         auto* look=dynamic_cast<FlangLookAndFeel*>(&editor->getLookAndFeel());
         verify(look!=nullptr,"Skell-Flang is not using the custom look-and-feel");
+        // Factory presets are host-driven; refresh presentation before
+        // comparing the independent theme and focused effect identity.
+        for(int i=0;i<3;++i)click(skull,"Cannot refresh preset focus");
         const auto initialAccent=look->accent;
         const auto initialBackground=look->background;
         click(skull,"Skull theme cycle is not clickable");
