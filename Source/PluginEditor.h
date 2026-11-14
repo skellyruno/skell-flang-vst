@@ -51,8 +51,8 @@ private:
     std::array<juce::Slider,7> faders;
     std::array<juce::Label,7> faderLabels;
     std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>,7> faderLinks;
-    juce::Slider order,morph;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> orderLink,morphLink;
+    juce::Slider order;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> orderLink;
     std::array<juce::Slider,7> knobs;
     std::array<juce::Label,7> knobLabels;
     // Keep four real APVTS attachments, but only show one macro dial at a time.
@@ -60,7 +60,8 @@ private:
     int selectedMacro=0;
     std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>,7> knobLinks;
     std::array<juce::TextButton,5> tabs;
-    juce::ComboBox target,shape;
+    std::array<bool,5> shownLayers{{}};
+    juce::ComboBox shape;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> shapeLink;
     juce::TextButton power{"ACTIVE"},sync{"SYNC"};
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> powerLink,syncLink;

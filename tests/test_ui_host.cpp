@@ -74,7 +74,7 @@ int main(int argc,char** argv){
         // oversized effect row would obscure the hardware-style rack header.
         verify(cog->getWidth()<=34 && cog->getHeight()<=30,
                "Settings button regressed to an oversized header block");
-        verify(preset->getWidth()>170 && preset->getRight()<cog->getX(),
+        verify(preset->getWidth()>125 && preset->getRight()<cog->getX(),
                "Sound library selector must be legible and clear of settings");
         for(const auto* name:names) {
             auto* tab=findButton(*editor,name);
@@ -85,17 +85,45 @@ int main(int argc,char** argv){
                findButton(*editor,"BACK")==nullptr,
                "Obsolete MOD drawer button is still present");
 
-        auto* morph=dynamic_cast<juce::Slider*>(editor->findChildWithID("morph"));
-        auto* dest=dynamic_cast<juce::ComboBox*>(editor->findChildWithID("morph-target"));
         auto* wave=dynamic_cast<juce::ComboBox*>(editor->findChildWithID("lfo-wave"));
         auto* sync=byID(*editor,"lfo-sync");
-        verify(morph&&dest&&wave&&sync,"Missing permanently integrated morph/LFO controls");
-        verify(dest->getSelectedId()==2,
-               "Initial morph target must be populated without waiting for the UI timer");
-        verify(morph->isVisible()&&dest->isVisible()&&wave->isVisible()&&sync->isVisible(),
-               "Morph and LFO controls must always be visible");
+        verify(wave&&sync,"Missing WAVE or SYNC");
+        verify(editor->findChildWithID("morph")==nullptr &&
+               editor->findChildWithID("morph-target")==nullptr,
+               "Retired TO/MORPH controls are still visible");
+        verify(wave->getX()>390&&wave->getY()>200&&wave->getBottom()<260,
+               "WAVE must fit beneath the signal monitor");
+        verify(sync->getY()<65&&sync->getRight()<cog->getX()&&
+               sync->getButtonText().isEmpty(),
+               "SYNC symbol must be before settings");
+        processor.applyFactoryPreset(0);
+        auto* chorus=findButton(*editor,"CHORUS");
+        auto* flanger=findButton(*editor,"FLANGER");
+        auto* orbit=findButton(*editor,"ORBIT");
+        auto* dimension=findButton(*editor,"DIMENSION");
+        click(flanger,"Could not enable a second layer");
+        verify(processor.parameters.getRawParameterValue("layerFlanger")->load()>.5f &&
+               processor.parameters.getRawParameterValue("layerChorus")->load()>.5f,
+               "Enabling Flanger must not remove Chorus");
+        click(orbit,"Cannot add Orbit layer");
+        click(dimension,"Cannot add Dimension layer");
+        verify(processor.parameters.getRawParameterValue("layerOrbit")->load()>.5f &&
+               processor.parameters.getRawParameterValue("layerDimension")->load()>.5f,
+               "Multiple simultaneous layers not active");
+        click(orbit,"Cannot disable Orbit");
+        verify(processor.parameters.getRawParameterValue("layerOrbit")->load()<.5f,
+               "Clicking Orbit again must disable it");
+        click(dimension,"Cannot disable Dimension");
+        click(flanger,"Cannot disable Flanger");
+        click(chorus,"Last active layer must be protected");
+        verify(processor.parameters.getRawParameterValue("layerChorus")->load()>.5f,
+               "All-off click is not guarded");
+        processor.applyFactoryPreset(0);
         auto* look=dynamic_cast<FlangLookAndFeel*>(&editor->getLookAndFeel());
         verify(look!=nullptr,"Skell-Flang is not using the custom look-and-feel");
+        // Factory presets are host-driven; refresh presentation before
+        // comparing the independent theme and focused effect identity.
+        for(int i=0;i<3;++i)click(skull,"Cannot refresh preset focus");
         const auto initialAccent=look->accent;
         const auto initialBackground=look->background;
         click(skull,"Skull theme cycle is not clickable");
@@ -103,7 +131,7 @@ int main(int argc,char** argv){
                "Skull click did not actually change the interface background");
         verify(look->accent==initialAccent,
                "Skull theme click incorrectly changed the effect identity accent");
-        verify(morph->isVisible(),"Skull theme change hid morph controls");
+        verify(wave->isVisible(),"Skull theme changed WAVE visibility");
         // The four advanced character parameters must be selectable without
         // drawing seven simultaneous rotary knobs. Every original APVTS dial
         // remains instantiated and available to the DAW automation system.
@@ -165,7 +193,7 @@ int main(int argc,char** argv){
                     skellcore::ui::headless::Scene scene;
                     scene.id="Skell-Flang-"+juce::String(width)+"-"+
                               juce::String(names[mode]).toLowerCase()+
-                              (morphed?"-morphed":"-unmorphed");
+                              (morphed?"-stacked":"-solo");
                     scene.width=width;
                     scene.height=juce::roundToInt(double(width)*500./720.);
                     scene.mode=choices[mode];
@@ -201,44 +229,55 @@ int main(int argc,char** argv){
             // Four genuine rendered states: default, alternate effect, active,
             // and one of the plugin's real physical colour skins.
             options.scenes = {
-                {"Skell-Flang-720-chorus-unmorphed",720,500,0,0,false},
-                {"Skell-Flang-720-flanger-unmorphed",720,500,0,1,false},
-                {"Skell-Flang-720-chorus-morphed",720,500,0,0,true},
+                {"Skell-Flang-720-chorus-solo",720,500,0,0,false},
+                {"Skell-Flang-720-flanger-solo",720,500,0,1,false},
+                {"Skell-Flang-720-chorus-stacked",720,500,0,0,true},
                 {"Skell-Flang-720-chorus-graphite",720,500,0,0,false}
             };
         }
         options.configure=[&](const auto& scene) {
-            auto* tab=findButton(*editor,juce::String(
-                scene.mode==0?"CHORUS":scene.mode==1?"FLANGER":
-                scene.mode==6?"FLANGUS":scene.mode==4?"ORBIT":"DIMENSION"));
-            click(tab,"Mode screenshot selector could not be clicked");
-            const int expectedTheme=scene.id.endsWith("-graphite")?1:
-                                    scene.id.endsWith("-bone")?2:0;
-            for(int i=0;i<3 && look->themeIndex!=expectedTheme;++i)
-                click(skull,"Cannot switch editor theme for renderer snapshot");
-            verify(look->themeIndex==expectedTheme,"Wrong theme in screenshot");
-            const juce::Colour identity=scene.mode==0?juce::Colour::fromRGB(75,230,172):
-                scene.mode==1?juce::Colour::fromRGB(60,203,245):
-                scene.mode==6?juce::Colour::fromRGB(154,244,77):
-                scene.mode==4?juce::Colour::fromRGB(138,160,255):
-                               juce::Colour::fromRGB(246,202,131);
-            verify(look->accent==identity,"Theme altered the selected effect color");
-            verify(int(processor.parameters.getRawParameterValue("mode")->load())==scene.mode,
-                   "Wrong mode in screenshot");
-            // Default scenes show macro 0. Dedicated character scenes select
-            // a specific macro and verify that switching modes did not expose
-            // dormant controls.
-            int expectedMacro=0;
+            const int desired=scene.mode;
+            const int bank=desired==0?0:desired==1?4:desired==6?7:desired==4?10:13;
+            processor.applyFactoryPreset(bank);
+            if(scene.browser) {
+                const int extra=desired==0?1:0;
+                click(findButton(*editor,extra==0?"CHORUS":"FLANGER"),
+                      "Second layer could not be enabled in renderer");
+                if(auto* p=processor.parameters.getParameter("mode"))
+                    p->setValueNotifyingHost(p->convertTo0to1(float(desired)));
+            }
+            // Three skull clicks force a refresh even when target theme is
+            // already correct (the preset is applied by the host).
+            for(int i=0;i<3;++i)
+                click(skull,"Cannot refresh real JUCE editor");
+            const int wanted=scene.id.endsWith("-graphite")?1:
+                             scene.id.endsWith("-bone")?2:0;
+            for(int i=0;i<3&&look->themeIndex!=wanted;++i)
+                click(skull,"Cannot apply scene theme");
+            verify(look->themeIndex==wanted,"Wrong screenshot theme");
+            const juce::String expectedName=processor.parameters.state
+                .getProperty("presetName","INIT").toString();
+            verify(preset->getButtonText()==expectedName,
+                   "Preset bar shows a stale factory/custom name");
+            verify(scene.browser ? expectedName=="CUSTOM" : expectedName!="CUSTOM",
+                   "Solo/stacked preset labels were not restored correctly");
+            const juce::Colour tint=desired==0?juce::Colour::fromRGB(75,230,172):
+                 desired==1?juce::Colour::fromRGB(60,203,245):
+                 desired==6?juce::Colour::fromRGB(154,244,77):
+                 desired==4?juce::Colour::fromRGB(138,160,255):
+                              juce::Colour::fromRGB(246,202,131);
+            verify(look->accent==tint,"Wrong focused effect accent");
+            verify(int(processor.parameters.getRawParameterValue("mode")->load())==desired,
+                   "Wrong focused mode in screenshot");
+            int selectedMacro=0;
             if(scene.id.contains("-macro"))
-                expectedMacro=juce::jlimit(0,3,
-                    scene.id.fromLastOccurrenceOf("-macro",false,false).getIntValue());
-            click(macroSelectors[size_t(expectedMacro)],
-                  "Failed to select a renderer macro");
-            verify(macroDials[size_t(expectedMacro)]->isVisible(),
-                   "Renderer selected a hidden macro dial");
-            morph->setValue(scene.browser?.76:0.0,juce::sendNotificationSync);
-            verify(morph->isVisible()&&dest->isVisible()&&wave->isVisible()&&sync->isVisible(),
-                   "Controls hidden after mode or morph change");
+                selectedMacro=juce::jlimit(0,3,scene.id.fromLastOccurrenceOf(
+                    "-macro",false,false).getIntValue());
+            click(macroSelectors[size_t(selectedMacro)],"Cannot select macro");
+            verify(macroDials[size_t(selectedMacro)]->isVisible(),
+                   "Wrong macro dial visibility");
+            verify(wave->isVisible()&&sync->isVisible(),
+                   "Signal wave or header sync control hidden");
         };
         options.inspect=[&]{
             juce::StringArray errors;
@@ -253,14 +292,14 @@ int main(int argc,char** argv){
                     errors.add("Control too small: "+c->getComponentID());
                 ++count;
             }
-            if(count<25)errors.add("Too few visible controls");
+            if(count<23)errors.add("Too few visible controls");
             int shownDials=0;
             for(auto* dial:macroDials)if(dial->isVisible())++shownDials;
             if(shownDials!=1)errors.add("Character dial count must equal one");
             for(auto* btn:macroSelectors)
                 if(!btn->isVisible())errors.add("Character selector hidden");
-            if(dest->getSelectedId()==0)
-                errors.add("Morph destination is blank in a current-mode screenshot");
+            if(wave->getSelectedId()==0)
+                errors.add("Waveform selection is blank");
             // All interactive controls must have independent, non-overlapping
             // mouse hit areas, even at the compact 540 px editor width.
             for(int i=0;i<editor->getNumChildComponents();++i) {
@@ -282,18 +321,18 @@ int main(int argc,char** argv){
             return errors;
         };
         options.mustDiffer={
-            {"Skell-Flang-540-chorus-unmorphed","Skell-Flang-540-chorus-morphed"},
-            {"Skell-Flang-540-flanger-unmorphed","Skell-Flang-540-flangus-unmorphed"},
-            {"Skell-Flang-540-orbit-unmorphed","Skell-Flang-540-dimension-unmorphed"},
-            {"Skell-Flang-720-chorus-unmorphed","Skell-Flang-720-chorus-graphite"},
+            {"Skell-Flang-540-chorus-solo","Skell-Flang-540-chorus-stacked"},
+            {"Skell-Flang-540-flanger-solo","Skell-Flang-540-flangus-solo"},
+            {"Skell-Flang-540-orbit-solo","Skell-Flang-540-dimension-solo"},
+            {"Skell-Flang-720-chorus-solo","Skell-Flang-720-chorus-graphite"},
             {"Skell-Flang-720-chorus-graphite","Skell-Flang-720-chorus-bone"},
             {"Skell-Flang-720-flangus-macro0","Skell-Flang-720-flangus-macro3"}
         };
         if(!full) {
             options.mustDiffer = {
-              {"Skell-Flang-720-chorus-unmorphed","Skell-Flang-720-flanger-unmorphed"},
-              {"Skell-Flang-720-chorus-unmorphed","Skell-Flang-720-chorus-morphed"},
-              {"Skell-Flang-720-chorus-unmorphed","Skell-Flang-720-chorus-graphite"}
+              {"Skell-Flang-720-chorus-solo","Skell-Flang-720-flanger-solo"},
+              {"Skell-Flang-720-chorus-solo","Skell-Flang-720-chorus-stacked"},
+              {"Skell-Flang-720-chorus-solo","Skell-Flang-720-chorus-graphite"}
             };
         }
         juce::Image probe(juce::Image::ARGB,8,8,true);
@@ -311,9 +350,9 @@ int main(int argc,char** argv){
         verify(report.captured==(full?70:4),"Wrong screenshot count for selected mode");
         if(!full) {
             const std::array<const char*,4> names{{
-                "Skell-Flang-720-chorus-unmorphed",
-                "Skell-Flang-720-flanger-unmorphed",
-                "Skell-Flang-720-chorus-morphed",
+                "Skell-Flang-720-chorus-solo",
+                "Skell-Flang-720-flanger-solo",
+                "Skell-Flang-720-chorus-stacked",
                 "Skell-Flang-720-chorus-graphite"}};
             constexpr int w=600,h=420;
             juce::Image sheet(juce::Image::RGB,2*w,2*h,true);
@@ -332,6 +371,8 @@ int main(int argc,char** argv){
         }
         std::cout<<"SkellCore captured "<<report.captured<<" real-editor views\n";
 
+        if(auto* old=processor.parameters.getParameter("layerMode"))
+            old->setValueNotifyingHost(old->convertTo0to1(0.f));
         // Keep testing legacy Tuned playback for old FL Studio saves, although
         // that mode no longer appears as a tab in the current interface.
         if(auto* v=processor.parameters.getParameter("mode"))
@@ -364,6 +405,61 @@ int main(int argc,char** argv){
                "Restored session lost Flangus mode");
         verify(processor.parameters.state.getProperty("presetName").toString()=="Flangus Jet",
                "Restored session lost preset identity");
+
+        // New layer flags must round-trip through a VST3 project state.
+        processor.applyFactoryPreset(7); // Flangus Glow
+        auto* orbitFlag=processor.parameters.getParameter("layerOrbit");
+        orbitFlag->setValueNotifyingHost(orbitFlag->convertTo0to1(1.f));
+        juce::MemoryBlock layerSession;
+        processor.getStateInformation(layerSession);
+        processor.applyFactoryPreset(0);
+        processor.setStateInformation(layerSession.getData(),int(layerSession.getSize()));
+        verify(processor.parameters.getRawParameterValue("layerMode")->load()>.5f &&
+               processor.parameters.getRawParameterValue("layerFlangus")->load()>.5f &&
+               processor.parameters.getRawParameterValue("layerOrbit")->load()>.5f,
+               "Layer stack was not restored from saved FL Studio state");
+
+        // Audio must actually differ with two independent engines, without
+        // duplicated dry gain or nonfinite output. Compare identical inputs.
+        const auto measure=[&](bool layeredFlanger) {
+            processor.applyFactoryPreset(0);
+            auto* flangerFlag=processor.parameters.getParameter("layerFlanger");
+            flangerFlag->setValueNotifyingHost(
+                flangerFlag->convertTo0to1(layeredFlanger?1.f:0.f));
+            processor.prepareToPlay(48000.,128);
+            juce::AudioBuffer<float> signal(2,128);
+            juce::MidiBuffer none;
+            std::array<float,512> tail{};
+            for(int block=0;block<150;++block) {
+                for(int i=0;i<128;++i) {
+                    const double t=double(block*128+i)/48000.;
+                    const float input=float(.21*std::sin(2.*skellflang::pi*173.*t)
+                                           +.07*std::sin(2.*skellflang::pi*461.*t));
+                    signal.setSample(0,i,input);
+                    signal.setSample(1,i,-input);
+                }
+                processor.processBlock(signal,none);
+                for(int i=0;i<128;++i) {
+                    const float l=signal.getSample(0,i);
+                    const float r=signal.getSample(1,i);
+                    verify(std::isfinite(l)&&std::isfinite(r),
+                           "Stacking created a non-finite audio sample");
+                    verify(std::abs(l)<4.f&&std::abs(r)<4.f,
+                           "Stacking exceeded safe normal headroom");
+                    if(block>=146)
+                        tail[size_t((block-146)*128+i)]=l;
+                }
+            }
+            processor.releaseResources();
+            return tail;
+        };
+        const auto solo=measure(false);
+        const auto stacked=measure(true);
+        double audibleDifference=0.;
+        for(size_t i=0;i<solo.size();++i)
+            audibleDifference+=std::abs(double(solo[i])-stacked[i]);
+        verify(audibleDifference>.05,
+               "Layer Stack enabled two flags but did not combine two engines");
 
         // Real processor mono/stereo/variable-block smoke at four host rates;
         // test abrupt mode changes, crossfeed, feedback and morph automation.

@@ -384,6 +384,28 @@ void FlangLookAndFeel::drawButtonBackground(juce::Graphics&g,juce::Button&button
         return;
     }
 
+    if(id=="lfo-sync") {
+        // A compact metronome / circular-arrows glyph, driven by the real
+        // lfoSync APVTS state rather than decorative animation.
+        g.setColour(selected?accent.withAlpha(.19f):surface);
+        g.fillRoundedRectangle(b,5.5f);
+        g.setColour(selected?accent.withAlpha(.94f):outline.withAlpha(.90f));
+        g.drawRoundedRectangle(b,5.5f,selected?1.25f:.8f);
+        const float cx=b.getCentreX(),cy=b.getCentreY();
+        g.setColour(selected?accent:secondary.withAlpha(.83f));
+        juce::Path pulse;
+        pulse.startNewSubPath(cx-8.3f,cy-2.f);
+        pulse.lineTo(cx-4.6f,cy-2.f);
+        pulse.lineTo(cx-2.f,cy-6.f);
+        pulse.lineTo(cx+1.6f,cy+5.7f);
+        pulse.lineTo(cx+4.8f,cy+1.5f);
+        pulse.lineTo(cx+8.2f,cy+1.5f);
+        g.strokePath(pulse,juce::PathStrokeType(1.75f,
+                     juce::PathStrokeType::curved,juce::PathStrokeType::rounded));
+        if(selected)g.fillEllipse(cx+7.3f,cy-7.5f,2.5f,2.5f);
+        return;
+    }
+
     if(id=="skull"||id=="settings") {
         // Compact, precisely bounded utility buttons; no oversized square
         // around the gear. The skull remains a functional three-theme switch.
@@ -484,23 +506,28 @@ void FlangLookAndFeel::drawButtonBackground(juce::Graphics&g,juce::Button&button
     }
 
     const float radius=modeButton?5.3f:(macroButton?4.f:5.f);
+    const int modeIndex=modeButton?juce::jlimit(0,7,
+         id.fromFirstOccurrenceOf("mode-",false,false).getIntValue()):0;
+    const auto buttonAccent=modeButton?tints[modeIndex]:accent;
+    const bool focused=modeButton&&bool(button.getProperties().getWithDefault(
+         "focused",false));
     g.setColour(juce::Colours::black.withAlpha(daylight?.05f:.25f));
     g.fillRoundedRectangle(b.translated(0.f,1.f),radius);
     const auto top=selected?surface.brighter(.32f):
                    (hover?surface.brighter(.22f):surface.brighter(.10f));
-    const auto bottom=selected?accent.withAlpha(daylight?.08f:.12f):
+    const auto bottom=selected?buttonAccent.withAlpha(daylight?.08f:.16f):
                       (hover?surface:recess);
     g.setGradientFill(juce::ColourGradient(
         top,b.getX(),b.getY(),bottom,b.getX(),b.getBottom(),false));
     g.fillRoundedRectangle(b,radius);
-    g.setColour(selected?accent.withAlpha(modeButton?.73f:.82f):
-                hover?accent.withAlpha(.46f):outline.withAlpha(.77f));
-    g.drawRoundedRectangle(b,radius,selected?1.13f:.82f);
+    g.setColour(selected?buttonAccent.withAlpha(focused?.96f:.70f):
+                hover?buttonAccent.withAlpha(.55f):outline.withAlpha(.77f));
+    g.drawRoundedRectangle(b,radius,selected?focused?1.50f:1.1f:.82f);
     g.setColour(juce::Colours::white.withAlpha(daylight?.24f:.08f));
     g.drawLine(b.getX()+6.f,b.getY()+1.4f,
                b.getRight()-6.f,b.getY()+1.4f,.65f);
     if(modeButton&&selected) {
-        g.setColour(accent.withAlpha(.89f));
+        g.setColour(buttonAccent.withAlpha(.94f));
         g.fillRoundedRectangle(b.getX()+5.1f,b.getCentreY()-4.5f,
                                1.7f,9.f,.85f);
     }
@@ -513,7 +540,7 @@ void FlangLookAndFeel::drawButtonBackground(juce::Graphics&g,juce::Button&button
 void FlangLookAndFeel::drawButtonText(juce::Graphics& g,
                                      juce::TextButton& button,bool hover,bool down) {
     const auto id=button.getComponentID();
-    if(id=="skull"||id=="settings")return;
+    if(id=="skull"||id=="settings"||id=="lfo-sync")return;
     const auto bounds=button.getLocalBounds();
     if(id=="preset") {
         const float height=float(bounds.getHeight());
@@ -553,7 +580,7 @@ void FlangLookAndFeel::drawButtonText(juce::Graphics& g,
 }
 
 juce::Font FlangLookAndFeel::getPopupMenuFont() {
-    return juce::Font(12.2f);
+    return juce::Font(11.0f);
 }
 void FlangLookAndFeel::drawPopupMenuBackground(juce::Graphics&g,int w,int h) {
     g.setGradientFill(juce::ColourGradient(
@@ -570,7 +597,7 @@ void FlangLookAndFeel::drawPopupMenuSectionHeader(juce::Graphics&g,
     g.setColour(recess.withAlpha(.80f));
     g.fillRect(area.reduced(1,2));
     g.setColour(accent.withAlpha(.90f));
-    g.setFont(juce::Font(10.2f,juce::Font::bold));
+    g.setFont(juce::Font(9.2f,juce::Font::bold));
     g.drawFittedText(title.toUpperCase(),area.reduced(14,1),
                      juce::Justification::centredLeft,1);
 }
@@ -594,7 +621,7 @@ void FlangLookAndFeel::drawPopupMenuItem(juce::Graphics&g,
     juce::Colour fg=overrideColour?*overrideColour:foreground;
     if(!enabled)fg=fg.withAlpha(.38f);
     g.setColour(fg);
-    g.setFont(juce::Font(12.f,highlighted?juce::Font::bold:juce::Font::plain));
+    g.setFont(juce::Font(10.8f,highlighted?juce::Font::bold:juce::Font::plain));
     g.drawFittedText(caption,area.withTrimmedLeft(28).withTrimmedRight(20),
                      juce::Justification::centredLeft,1);
     if(ticked) {
@@ -611,13 +638,13 @@ void FlangLookAndFeel::drawPopupMenuItem(juce::Graphics&g,
 }
 void FlangLookAndFeel::getIdealPopupMenuItemSize(
         const juce::String& text,bool separator,int,int& width,int& height) {
-    width=separator?30:juce::jmax(198,juce::roundToInt(juce::Font(12.f).getStringWidthFloat(text))+65);
-    height=separator?8:29;
+    width=separator?30:juce::jmax(172,juce::roundToInt(juce::Font(10.8f).getStringWidthFloat(text))+48);
+    height=separator?7:24;
 }
 SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioProcessor& p)
 : AudioProcessorEditor(&p),processor(p) {
     setLookAndFeel(&skin);
-    for(auto* dropdown:{&target,&shape}) {
+    for(auto* dropdown:{&shape}) {
         dropdown->setColour(juce::ComboBox::backgroundColourId,juce::Colour::fromRGB(10,27,29));
         dropdown->setColour(juce::ComboBox::textColourId,bone);
         dropdown->setColour(juce::ComboBox::outlineColourId,juce::Colour::fromRGB(47,82,72));
@@ -687,61 +714,65 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
     };
     for(int i=0;i<5;++i) {
         const int mode=visibleModes[size_t(i)];
-        tabs[size_t(i)].setButtonText(modes[mode]);
-        tabs[size_t(i)].setTooltip(hints[i]);
-        tabs[size_t(i)].setComponentID("mode-"+juce::String(mode));
-        tabs[size_t(i)].setColour(juce::TextButton::textColourOffId,bone);
-        tabs[size_t(i)].setColour(juce::TextButton::textColourOnId,bone);
-        addAndMakeVisible(tabs[size_t(i)]);
-        tabs[size_t(i)].onClick=[this,mode]{
-            selectedMacro=0;
-            if(auto* param=processor.parameters.getParameter("mode")) {
-                param->beginChangeGesture();
-                param->setValueNotifyingHost(param->convertTo0to1(float(mode)));
-                param->endChangeGesture();
+        auto& button=tabs[size_t(i)];
+        button.setButtonText(modes[mode]);
+        button.setTooltip("Click to add or remove this effect layer");
+        button.setComponentID("mode-"+juce::String(mode));
+        button.setClickingTogglesState(true);
+        addAndMakeVisible(button);
+        button.onClick=[this,i,mode] {
+            const auto id=SkellFlangAudioProcessor::layerParameterIDs[size_t(i)];
+            const auto* raw=processor.parameters.getRawParameterValue(id);
+            const bool wasEnabled=raw&&raw->load(std::memory_order_relaxed)>.5f;
+            int count=0;
+            for(const auto* flag:SkellFlangAudioProcessor::layerParameterIDs)
+                if(const auto* value=processor.parameters.getRawParameterValue(flag))
+                    if(value->load(std::memory_order_relaxed)>.5f)++count;
+            if(wasEnabled&&count<=1) {
+                tabs[size_t(i)].setToggleState(true,juce::dontSendNotification);
+                return;
             }
+            const auto edit=[this](const char* parameterId,float value) {
+                if(auto* p=processor.parameters.getParameter(parameterId)) {
+                    p->beginChangeGesture();
+                    p->setValueNotifyingHost(p->convertTo0to1(value));
+                    p->endChangeGesture();
+                }
+            };
+            edit("layerMode",1.f);
+            edit(id,wasEnabled?0.f:1.f);
+            if(!wasEnabled)edit("mode",float(mode));
+            else {
+                const auto* focus=processor.parameters.getRawParameterValue("mode");
+                if(focus&&int(focus->load(std::memory_order_relaxed))==mode)
+                    for(size_t j=0;j<visibleModes.size();++j) {
+                        if(j==size_t(i))continue;
+                        const auto* other=processor.parameters.getRawParameterValue(
+                            SkellFlangAudioProcessor::layerParameterIDs[j]);
+                        if(other&&other->load(std::memory_order_relaxed)>.5f) {
+                            edit("mode",float(visibleModes[j]));
+                            break;
+                        }
+                    }
+            }
+            // A hand-built combination must not keep displaying its
+            // original single-effect factory preset as if unmodified.
+            processor.parameters.state.setProperty("presetName","CUSTOM",nullptr);
+            preset.setButtonText("CUSTOM");
             updateMode();
         };
     }
-
-    // The host retains all eight original choice positions. The compact UI
-    // intentionally offers only the five current effects, with direct IDs.
-    for(const auto mode:visibleModes)target.addItem(modes[mode],mode+1);
-    // A non-attached ComboBox must explicitly synchronize its first value
-    // before the initial paint; otherwise hosts see a blank destination.
-    target.setTextWhenNothingSelected("LEGACY TARGET");
-    if(const auto* current=p.parameters.getRawParameterValue("morphTarget")) {
-        const int wanted=std::clamp(int(current->load(std::memory_order_relaxed)),0,7);
-        if(std::find(visibleModes.begin(),visibleModes.end(),wanted)!=visibleModes.end())
-            target.setSelectedId(wanted+1,juce::dontSendNotification);
-    }
-    target.onChange=[this]{
-        const int selected=target.getSelectedId()-1;
-        if(selected>=0)
-            if(auto* param=processor.parameters.getParameter("morphTarget")) {
-                param->beginChangeGesture();
-                param->setValueNotifyingHost(param->convertTo0to1(float(selected)));
-                param->endChangeGesture();
-            }
-    };
+    // Old TO/MORPH IDs remain valid for existing FL Studio projects.
     for(int i=0;i<5;++i)
         shape.addItem(juce::StringArray{"Sine","Triangle","Saw+","Saw-","Square"}[i],i+1);
-    target.setComponentID("morph-target");
-    target.setTooltip("Morph destination effect");
     shape.setComponentID("lfo-wave");
-    shape.setTooltip("LFO waveform");
+    shape.setTooltip("Select LFO movement waveform");
     sync.setComponentID("lfo-sync");
-    addAndMakeVisible(target);addAndMakeVisible(shape);
+    sync.setButtonText("");
+    sync.setTooltip("Sync movement to FL Studio tempo");
+    addAndMakeVisible(shape);
     shapeLink=std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
         p.parameters,"lfoShape",shape);
-    morph.setSliderStyle(juce::Slider::LinearHorizontal);
-    morph.setTextBoxStyle(juce::Slider::NoTextBox,false,0,0);
-    morph.setDoubleClickReturnValue(true,0.0);
-    morph.setTooltip("Crossfade to the selected destination effect");
-    morph.setComponentID("morph");
-    addAndMakeVisible(morph);
-    morphLink=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        p.parameters,"morph",morph);
     sync.setClickingTogglesState(true);
     sync.setTooltip("Sync LFO motion to your host tempo");
     addAndMakeVisible(sync);
@@ -788,7 +819,7 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
             menu.addSubMenu(groups[group],sounds,true);
         }
         menu.showMenuAsync(juce::PopupMenu::Options()
-                             .withTargetComponent(&preset).withMinimumWidth(256)
+                             .withTargetComponent(&preset).withMinimumWidth(201)
                              .withMaximumNumColumns(1),
             [safeEditor](int result){
                 if(safeEditor&&result>=1&&result<=16) {
@@ -820,7 +851,7 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
             : (processor.worldLink.requested()?"Connecting to local hub":"Offline - opt in to connect"),
             false,false);
         menu.showMenuAsync(juce::PopupMenu::Options()
-                               .withTargetComponent(&settings).withMinimumWidth(242)
+                               .withTargetComponent(&settings).withMinimumWidth(201)
                                .withMaximumNumColumns(1),
             [safeEditor](int item){
                 if(!safeEditor)return;
@@ -879,8 +910,8 @@ void SkellFlangAudioProcessorEditor::resized() {
     // Same overall instrument-rack layout, with three primary tone knobs.
     // Four contextual macro parameters remain available by selection.
     place(skull,17,12,40,35);
-    place(preset,389,10,251,39);
-    place(settings,662,12,41,35);
+    place(preset,399,12,195,34);
+    place(settings,658,13,36,32);
     for(int i=0;i<5;++i)
         place(tabs[size_t(i)],27+i*138,77,111,29);
     place(order,25,169,52,142);
@@ -901,25 +932,30 @@ void SkellFlangAudioProcessorEditor::resized() {
         const int column=i%2, row=i/2;
         place(macroTabs[size_t(i)],383+column*108,374+row*29,98,25);
     }
-    place(target,53,453,130,26);
-    place(morph,238,453,183,26);
-    place(shape,478,453,97,26);
-    place(sync,591,453,100,26);
+    place(shape,553,288,143,25);
+    place(sync,610,13,32,32);
 }
 void SkellFlangAudioProcessorEditor::updateMode() {
     const auto* raw=processor.parameters.getRawParameterValue("mode");
     const int selected=std::clamp(raw?int(raw->load(std::memory_order_relaxed)):0,0,7);
-    // Also refresh MORPH TARGET when presets or host automation change it,
-    // including cases where the active effect tab has not changed.
-    if(const auto* current=processor.parameters.getRawParameterValue("morphTarget")) {
-        const int wanted=std::clamp(int(current->load(std::memory_order_relaxed)),0,7);
-        const int id=std::find(visibleModes.begin(),visibleModes.end(),wanted)
-                     !=visibleModes.end()?wanted+1:0;
-        if(target.getSelectedId()!=id)
-            target.setSelectedId(id,juce::dontSendNotification);
+    const auto* layering=processor.parameters.getRawParameterValue("layerMode");
+    const bool legacy=layering&&layering->load(std::memory_order_relaxed)<.5f;
+    std::array<bool,5> layers{};
+    for(size_t i=0;i<layers.size();++i) {
+        const auto* enabled=processor.parameters.getRawParameterValue(
+            SkellFlangAudioProcessor::layerParameterIDs[i]);
+        layers[i]=legacy?(visibleModes[i]==selected):
+                       (enabled&&enabled->load(std::memory_order_relaxed)>.5f);
     }
+    // Factory presets and host state loads may not change the focused mode:
+    // update the visible preset title synchronously, not 33 ms later by timer.
+    const juce::String presetName=processor.parameters.state
+        .getProperty("presetName","INIT").toString();
+    if(preset.getButtonText()!=presetName)preset.setButtonText(presetName);
     const bool modeChanged=selected!=shownMode;
-    if(!modeChanged&&theme==shownTheme)return;
+    const bool layersChanged=layers!=shownLayers;
+    if(!modeChanged&&!layersChanged&&theme==shownTheme)return;
+    shownLayers=layers;
     shownMode=selected;
     shownTheme=theme;
     // Every effect retains a separate identity color regardless of the skull skin.
@@ -930,7 +966,7 @@ void SkellFlangAudioProcessorEditor::updateMode() {
     // previously left the entire UI in the original midnight theme.
     for(auto& l:faderLabels)l.setColour(juce::Label::textColourId,skin.secondary);
     for(auto& l:knobLabels)l.setColour(juce::Label::textColourId,skin.secondary);
-    for(auto* drop:{&target,&shape}) {
+    for(auto* drop:{&shape}) {
         drop->setColour(juce::ComboBox::backgroundColourId,skin.recess);
         drop->setColour(juce::ComboBox::textColourId,skin.foreground);
         drop->setColour(juce::ComboBox::outlineColourId,skin.outline);
@@ -953,10 +989,14 @@ void SkellFlangAudioProcessorEditor::updateMode() {
     for(auto& slider:knobs)slider.repaint();
     for(auto& tab:tabs)tab.repaint();
     for(auto* button:{&skull,&settings,&preset,&sync})button->repaint();
-    order.repaint();morph.repaint();
-    for(int i=0;i<5;++i)
-        tabs[size_t(i)].setToggleState(visibleModes[size_t(i)]==selected,
+    order.repaint();
+    for(int i=0;i<5;++i) {
+        tabs[size_t(i)].setToggleState(layers[size_t(i)],
                                        juce::dontSendNotification);
+        tabs[size_t(i)].getProperties().set("focused",
+            layers[size_t(i)]&&visibleModes[size_t(i)]==selected);
+        tabs[size_t(i)].repaint();
+    }
     // The user's selected macro remains attached to its original VST3 ID.
     // Host automation still updates all four macros, even if not visible.
     if(modeChanged)selectedMacro=0;
@@ -1076,7 +1116,7 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.fillRoundedRectangle(27.f,154.f,33.f,1.3f,.5f);
     g.fillRoundedRectangle(550.f,154.f,27.f,1.3f,.5f);
 
-    const juce::Rectangle<float> scope(552.f,162.f,141.f,135.f);
+    const juce::Rectangle<float> scope(552.f,162.f,141.f,102.f);
     g.setColour(skin.recess);
     g.fillRoundedRectangle(scope,5.f);
     g.setColour(skin.outline);
@@ -1118,7 +1158,10 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     const juce::String annotation=shownMode==5
         ? ("PITCH  "+juce::String(processor.meters.pitch.load(std::memory_order_relaxed),1)+" Hz")
         : ("MODE  /  "+juce::String(modes[std::clamp(shownMode,0,7)]));
-    g.drawText(annotation,554,310,142,17,juce::Justification::left);
+    g.drawText(annotation,554,316,142,16,juce::Justification::left);
+    g.setColour(skin.secondary.withAlpha(.84f));
+    g.setFont(juce::Font(9.3f,juce::Font::bold));
+    g.drawText("WAVE",556,274,136,13,juce::Justification::left);
 
     // Every parameter is available without entering a separate MOD page.
     g.setColour(skin.secondary);
@@ -1139,13 +1182,20 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.fillRoundedRectangle(383.f,373.f,32.f,1.2f,.6f);
     g.setColour(skin.outline);
     g.fillRoundedRectangle(27.f,446.f,669.f,1.f,.5f);
-    // Inline captions do not overlap the knob labels above at compact scale.
-    g.setColour(skin.accent.withAlpha(.78f));
-    g.setFont(juce::Font(9.8f,juce::Font::bold));
-    g.drawText("TO",29,453,23,26,juce::Justification::centredLeft);
-    g.drawText("MORPH",188,453,50,26,juce::Justification::centredLeft);
-    g.drawText("WAVE",429,453,47,26,juce::Justification::centredLeft);
-
+    // Show real active engine names without adding a redundant control bar.
+    juce::String description="ACTIVE LAYERS   ";
+    int count=0;
+    for(size_t i=0;i<visibleModes.size();++i) {
+        if(shownLayers[i]) {
+            if(count++)description+="  +  ";
+            description+=modes[visibleModes[i]];
+        }
+    }
+    if(count==0)description+="LEGACY / HOST MODE";
+    g.setColour(skin.secondary);
+    g.setFont(juce::Font(10.f,juce::Font::bold));
+    g.drawFittedText(description,29,453,660,24,
+                     juce::Justification::centredLeft,1);
     // Footer remains legible when the editor is scaled to compact mode.
     g.setColour(skin.secondary);g.setFont(juce::Font(11.f));
     g.drawText("LIVE  /  "+juce::String(processor.meters.bpm.load(std::memory_order_relaxed),1)+
