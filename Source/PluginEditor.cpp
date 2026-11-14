@@ -879,8 +879,8 @@ void SkellFlangAudioProcessorEditor::resized() {
     // Same overall instrument-rack layout, with three primary tone knobs.
     // Four contextual macro parameters remain available by selection.
     place(skull,17,12,40,35);
-    place(preset,389,10,251,39);
-    place(settings,662,12,41,35);
+    place(preset,399,12,195,34);
+    place(settings,658,13,36,32);
     for(int i=0;i<5;++i)
         place(tabs[size_t(i)],27+i*138,77,111,29);
     place(order,25,169,52,142);
@@ -901,25 +901,25 @@ void SkellFlangAudioProcessorEditor::resized() {
         const int column=i%2, row=i/2;
         place(macroTabs[size_t(i)],383+column*108,374+row*29,98,25);
     }
-    place(target,53,453,130,26);
-    place(morph,238,453,183,26);
-    place(shape,478,453,97,26);
-    place(sync,591,453,100,26);
+    place(shape,553,288,143,25);
+    place(sync,610,13,32,32);
 }
 void SkellFlangAudioProcessorEditor::updateMode() {
     const auto* raw=processor.parameters.getRawParameterValue("mode");
     const int selected=std::clamp(raw?int(raw->load(std::memory_order_relaxed)):0,0,7);
-    // Also refresh MORPH TARGET when presets or host automation change it,
-    // including cases where the active effect tab has not changed.
-    if(const auto* current=processor.parameters.getRawParameterValue("morphTarget")) {
-        const int wanted=std::clamp(int(current->load(std::memory_order_relaxed)),0,7);
-        const int id=std::find(visibleModes.begin(),visibleModes.end(),wanted)
-                     !=visibleModes.end()?wanted+1:0;
-        if(target.getSelectedId()!=id)
-            target.setSelectedId(id,juce::dontSendNotification);
+    const auto* layering=processor.parameters.getRawParameterValue("layerMode");
+    const bool legacy=layering&&layering->load(std::memory_order_relaxed)<.5f;
+    std::array<bool,5> layers{};
+    for(size_t i=0;i<layers.size();++i) {
+        const auto* enabled=processor.parameters.getRawParameterValue(
+            SkellFlangAudioProcessor::layerParameterIDs[i]);
+        layers[i]=legacy?(visibleModes[i]==selected):
+                       (enabled&&enabled->load(std::memory_order_relaxed)>.5f);
     }
     const bool modeChanged=selected!=shownMode;
-    if(!modeChanged&&theme==shownTheme)return;
+    const bool layersChanged=layers!=shownLayers;
+    if(!modeChanged&&!layersChanged&&theme==shownTheme)return;
+    shownLayers=layers;
     shownMode=selected;
     shownTheme=theme;
     // Every effect retains a separate identity color regardless of the skull skin.
@@ -930,7 +930,7 @@ void SkellFlangAudioProcessorEditor::updateMode() {
     // previously left the entire UI in the original midnight theme.
     for(auto& l:faderLabels)l.setColour(juce::Label::textColourId,skin.secondary);
     for(auto& l:knobLabels)l.setColour(juce::Label::textColourId,skin.secondary);
-    for(auto* drop:{&target,&shape}) {
+    for(auto* drop:{&shape}) {
         drop->setColour(juce::ComboBox::backgroundColourId,skin.recess);
         drop->setColour(juce::ComboBox::textColourId,skin.foreground);
         drop->setColour(juce::ComboBox::outlineColourId,skin.outline);
@@ -953,10 +953,14 @@ void SkellFlangAudioProcessorEditor::updateMode() {
     for(auto& slider:knobs)slider.repaint();
     for(auto& tab:tabs)tab.repaint();
     for(auto* button:{&skull,&settings,&preset,&sync})button->repaint();
-    order.repaint();morph.repaint();
-    for(int i=0;i<5;++i)
-        tabs[size_t(i)].setToggleState(visibleModes[size_t(i)]==selected,
+    order.repaint();
+    for(int i=0;i<5;++i) {
+        tabs[size_t(i)].setToggleState(layers[size_t(i)],
                                        juce::dontSendNotification);
+        tabs[size_t(i)].getProperties().set("focused",
+            layers[size_t(i)]&&visibleModes[size_t(i)]==selected);
+        tabs[size_t(i)].repaint();
+    }
     // The user's selected macro remains attached to its original VST3 ID.
     // Host automation still updates all four macros, even if not visible.
     if(modeChanged)selectedMacro=0;
@@ -1076,7 +1080,7 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.fillRoundedRectangle(27.f,154.f,33.f,1.3f,.5f);
     g.fillRoundedRectangle(550.f,154.f,27.f,1.3f,.5f);
 
-    const juce::Rectangle<float> scope(552.f,162.f,141.f,135.f);
+    const juce::Rectangle<float> scope(552.f,162.f,141.f,102.f);
     g.setColour(skin.recess);
     g.fillRoundedRectangle(scope,5.f);
     g.setColour(skin.outline);
@@ -1118,7 +1122,10 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     const juce::String annotation=shownMode==5
         ? ("PITCH  "+juce::String(processor.meters.pitch.load(std::memory_order_relaxed),1)+" Hz")
         : ("MODE  /  "+juce::String(modes[std::clamp(shownMode,0,7)]));
-    g.drawText(annotation,554,310,142,17,juce::Justification::left);
+    g.drawText(annotation,554,316,142,16,juce::Justification::left);
+    g.setColour(skin.secondary.withAlpha(.84f));
+    g.setFont(juce::Font(9.3f,juce::Font::bold));
+    g.drawText("WAVE",556,274,136,13,juce::Justification::left);
 
     // Every parameter is available without entering a separate MOD page.
     g.setColour(skin.secondary);
@@ -1139,13 +1146,20 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.fillRoundedRectangle(383.f,373.f,32.f,1.2f,.6f);
     g.setColour(skin.outline);
     g.fillRoundedRectangle(27.f,446.f,669.f,1.f,.5f);
-    // Inline captions do not overlap the knob labels above at compact scale.
-    g.setColour(skin.accent.withAlpha(.78f));
-    g.setFont(juce::Font(9.8f,juce::Font::bold));
-    g.drawText("TO",29,453,23,26,juce::Justification::centredLeft);
-    g.drawText("MORPH",188,453,50,26,juce::Justification::centredLeft);
-    g.drawText("WAVE",429,453,47,26,juce::Justification::centredLeft);
-
+    // Show real active engine names without adding a redundant control bar.
+    juce::String description="ACTIVE LAYERS   ";
+    int count=0;
+    for(size_t i=0;i<visibleModes.size();++i) {
+        if(shownLayers[i]) {
+            if(count++)description+="  +  ";
+            description+=modes[visibleModes[i]];
+        }
+    }
+    if(count==0)description+="LEGACY / HOST MODE";
+    g.setColour(skin.secondary);
+    g.setFont(juce::Font(10.f,juce::Font::bold));
+    g.drawFittedText(description,29,453,660,24,
+                     juce::Justification::centredLeft,1);
     // Footer remains legible when the editor is scaled to compact mode.
     g.setColour(skin.secondary);g.setFont(juce::Font(11.f));
     g.drawText("LIVE  /  "+juce::String(processor.meters.bpm.load(std::memory_order_relaxed),1)+
