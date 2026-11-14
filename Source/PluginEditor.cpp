@@ -617,7 +617,7 @@ void FlangLookAndFeel::getIdealPopupMenuItemSize(
 SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioProcessor& p)
 : AudioProcessorEditor(&p),processor(p) {
     setLookAndFeel(&skin);
-    for(auto* dropdown:{&target,&shape}) {
+    for(auto* dropdown:{&shape}) {
         dropdown->setColour(juce::ComboBox::backgroundColourId,juce::Colour::fromRGB(10,27,29));
         dropdown->setColour(juce::ComboBox::textColourId,bone);
         dropdown->setColour(juce::ComboBox::outlineColourId,juce::Colour::fromRGB(47,82,72));
@@ -687,61 +687,61 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
     };
     for(int i=0;i<5;++i) {
         const int mode=visibleModes[size_t(i)];
-        tabs[size_t(i)].setButtonText(modes[mode]);
-        tabs[size_t(i)].setTooltip(hints[i]);
-        tabs[size_t(i)].setComponentID("mode-"+juce::String(mode));
-        tabs[size_t(i)].setColour(juce::TextButton::textColourOffId,bone);
-        tabs[size_t(i)].setColour(juce::TextButton::textColourOnId,bone);
-        addAndMakeVisible(tabs[size_t(i)]);
-        tabs[size_t(i)].onClick=[this,mode]{
-            selectedMacro=0;
-            if(auto* param=processor.parameters.getParameter("mode")) {
-                param->beginChangeGesture();
-                param->setValueNotifyingHost(param->convertTo0to1(float(mode)));
-                param->endChangeGesture();
+        auto& button=tabs[size_t(i)];
+        button.setButtonText(modes[mode]);
+        button.setTooltip("Click to add or remove this effect layer");
+        button.setComponentID("mode-"+juce::String(mode));
+        button.setClickingTogglesState(true);
+        addAndMakeVisible(button);
+        button.onClick=[this,i,mode] {
+            const auto id=SkellFlangAudioProcessor::layerParameterIDs[size_t(i)];
+            const auto* raw=processor.parameters.getRawParameterValue(id);
+            const bool wasEnabled=raw&&raw->load(std::memory_order_relaxed)>.5f;
+            int count=0;
+            for(const auto* flag:SkellFlangAudioProcessor::layerParameterIDs)
+                if(const auto* value=processor.parameters.getRawParameterValue(flag))
+                    if(value->load(std::memory_order_relaxed)>.5f)++count;
+            if(wasEnabled&&count<=1) {
+                button.setToggleState(true,juce::dontSendNotification);
+                return;
+            }
+            const auto edit=[this](const char* parameterId,float value) {
+                if(auto* p=processor.parameters.getParameter(parameterId)) {
+                    p->beginChangeGesture();
+                    p->setValueNotifyingHost(p->convertTo0to1(value));
+                    p->endChangeGesture();
+                }
+            };
+            edit("layerMode",1.f);
+            edit(id,wasEnabled?0.f:1.f);
+            if(!wasEnabled)edit("mode",float(mode));
+            else {
+                const auto* focus=processor.parameters.getRawParameterValue("mode");
+                if(focus&&int(focus->load(std::memory_order_relaxed))==mode)
+                    for(size_t j=0;j<visibleModes.size();++j) {
+                        if(j==size_t(i))continue;
+                        const auto* other=processor.parameters.getRawParameterValue(
+                            SkellFlangAudioProcessor::layerParameterIDs[j]);
+                        if(other&&other->load(std::memory_order_relaxed)>.5f) {
+                            edit("mode",float(visibleModes[j]));
+                            break;
+                        }
+                    }
             }
             updateMode();
         };
     }
-
-    // The host retains all eight original choice positions. The compact UI
-    // intentionally offers only the five current effects, with direct IDs.
-    for(const auto mode:visibleModes)target.addItem(modes[mode],mode+1);
-    // A non-attached ComboBox must explicitly synchronize its first value
-    // before the initial paint; otherwise hosts see a blank destination.
-    target.setTextWhenNothingSelected("LEGACY TARGET");
-    if(const auto* current=p.parameters.getRawParameterValue("morphTarget")) {
-        const int wanted=std::clamp(int(current->load(std::memory_order_relaxed)),0,7);
-        if(std::find(visibleModes.begin(),visibleModes.end(),wanted)!=visibleModes.end())
-            target.setSelectedId(wanted+1,juce::dontSendNotification);
-    }
-    target.onChange=[this]{
-        const int selected=target.getSelectedId()-1;
-        if(selected>=0)
-            if(auto* param=processor.parameters.getParameter("morphTarget")) {
-                param->beginChangeGesture();
-                param->setValueNotifyingHost(param->convertTo0to1(float(selected)));
-                param->endChangeGesture();
-            }
-    };
+    // Old TO/MORPH IDs remain valid for existing FL Studio projects.
     for(int i=0;i<5;++i)
         shape.addItem(juce::StringArray{"Sine","Triangle","Saw+","Saw-","Square"}[i],i+1);
-    target.setComponentID("morph-target");
-    target.setTooltip("Morph destination effect");
     shape.setComponentID("lfo-wave");
-    shape.setTooltip("LFO waveform");
+    shape.setTooltip("Select LFO movement waveform");
     sync.setComponentID("lfo-sync");
-    addAndMakeVisible(target);addAndMakeVisible(shape);
+    sync.setButtonText("");
+    sync.setTooltip("Sync movement to FL Studio tempo");
+    addAndMakeVisible(shape);
     shapeLink=std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
         p.parameters,"lfoShape",shape);
-    morph.setSliderStyle(juce::Slider::LinearHorizontal);
-    morph.setTextBoxStyle(juce::Slider::NoTextBox,false,0,0);
-    morph.setDoubleClickReturnValue(true,0.0);
-    morph.setTooltip("Crossfade to the selected destination effect");
-    morph.setComponentID("morph");
-    addAndMakeVisible(morph);
-    morphLink=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        p.parameters,"morph",morph);
     sync.setClickingTogglesState(true);
     sync.setTooltip("Sync LFO motion to your host tempo");
     addAndMakeVisible(sync);
