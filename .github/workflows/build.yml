@@ -7,7 +7,7 @@ on:
 # A newer commit supersedes earlier heavy MSVC builds while iterating.
 concurrency:
   group: skell-flang-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   windows-vst3:
     runs-on: windows-latest
@@ -20,10 +20,20 @@ jobs:
       - name: Validate manifest and package
         shell: pwsh
         run: |
-          $vst = Get-ChildItem build -Directory -Recurse -Filter '*.vst3' | Where-Object { $_.FullName -like '*SkellFlang*' } | Select-Object -First 1
-          if (-not $vst) { throw 'Skell-Flang VST3 not built' }
+          $bundles = @(Get-ChildItem 'build/SkellFlang_artefacts/Release/VST3' -Directory -Filter '*.vst3' -ErrorAction Stop)
+          if ($bundles.Count -ne 1) { throw "Expected exactly one VST3 bundle; found $($bundles.Count)" }
+          $vst = $bundles[0]
+          if ($vst.Name -ne 'Skell-Flang.vst3') { throw "Unexpected bundle name: $($vst.Name)" }
           $binary = Join-Path $vst.FullName 'Contents/x86_64-win/Skell-Flang.vst3'
           if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw 'VST3 x64 module binary missing' }
+          $header = [System.IO.File]::ReadAllBytes($binary)
+          if ($header.Length -lt 64 -or $header[0] -ne 0x4D -or $header[1] -ne 0x5A) { throw 'Invalid Windows PE module header' }
+          $peOffset = [BitConverter]::ToInt32($header, 0x3C)
+          if ($peOffset -lt 0 -or $peOffset -gt ($header.Length - 6) -or
+              [Text.Encoding]::ASCII.GetString($header, $peOffset, 4) -ne "PE`0`0") { throw 'Missing PE signature' }
+          $machine = [BitConverter]::ToUInt16($header, $peOffset + 4)
+          if ($machine -ne 0x8664) { throw "Expected x64 PE machine 0x8664; found $machine" }
+          Get-FileHash -LiteralPath $binary -Algorithm SHA256 | Format-List
           $manifest = Join-Path $vst.FullName 'Contents/Resources/moduleinfo.json'
           if (-not (Test-Path -LiteralPath $manifest)) { throw 'VST3 manifest is missing' }
           $contents = Get-Content -LiteralPath $manifest -Raw
@@ -33,7 +43,9 @@ jobs:
           if ($metadata.Name -ne 'Skell-Flang') { throw 'Unexpected VST3 product identity' }
           Set-Content -LiteralPath $manifest -Value $normalized -Encoding utf8 -NoNewline
           New-Item -ItemType Directory -Path dist -Force | Out-Null
-          Copy-Item -Path $vst.FullName -Destination dist -Recurse -Force
+          Copy-Item -LiteralPath $vst.FullName -Destination dist -Recurse -Force
+          $copied = @(Get-ChildItem dist -Directory -Filter '*.vst3')
+          if ($copied.Count -ne 1) { throw 'Distribution must contain exactly one VST3 bundle' }
       - name: Exercise real JUCE editor at four sizes and render test snapshots
         shell: pwsh
         run: |
@@ -64,6 +76,7 @@ jobs:
           name: Skell-Flang-Windows-VST3-Only
           path: dist/
           if-no-files-found: error
+          retention-days: 7
   portable-dsp:
     runs-on: ubuntu-latest
     steps:
