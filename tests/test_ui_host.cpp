@@ -303,13 +303,18 @@ int main(int argc,char** argv){
                 if(!image.isValid())
                     errors.add("Cannot inspect real JUCE scope pixels");
                 else {
-                    const auto expected=image.getPixelAt(564,270);
-                    const auto outside=image.getPixelAt(622,270);
-                    const int diff=std::abs(int(expected.getRed())-int(outside.getRed()))
-                                 +std::abs(int(expected.getGreen())-int(outside.getGreen()))
-                                 +std::abs(int(expected.getBlue())-int(outside.getBlue()));
-                    if(diff>10)
-                        errors.add("Signal ribs escape scope into Wave label area");
+                    const auto expected=image.getPixelAt(564,269);
+                    // These exact positions had visible escaped rib pixels
+                    // (RGB deltas 34/41/64) in the pre-fix Midnight screenshot.
+                    for(const auto point:std::array<juce::Point<int>,3>{{
+                            {600,267},{590,270},{585,273}}}) {
+                        const auto outside=image.getPixelAt(point.x,point.y);
+                        const int diff=std::abs(int(expected.getRed())-int(outside.getRed()))
+                                     +std::abs(int(expected.getGreen())-int(outside.getGreen()))
+                                     +std::abs(int(expected.getBlue())-int(outside.getBlue()));
+                        if(diff>10)
+                            errors.add("Signal ribs escape scope into Wave label area");
+                    }
                 }
             }
             int shownDials=0;
