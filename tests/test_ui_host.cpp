@@ -293,6 +293,30 @@ int main(int argc,char** argv){
                 ++count;
             }
             if(count<23)errors.add("Too few visible controls");
+            if(editor->getWidth()==720) {
+                // Pixel check on actual JUCE output: both pixels are blank
+                // signal-panel surface BELOW the oscilloscope frame (y=264).
+                // The old six-rib sketch painted a visible fifth/sixth rib
+                // into this area and partly behind the WAVE caption.
+                const auto image=editor->createComponentSnapshot(
+                    editor->getLocalBounds(),true);
+                if(!image.isValid())
+                    errors.add("Cannot inspect real JUCE scope pixels");
+                else {
+                    const auto expected=image.getPixelAt(564,269);
+                    // These exact positions had visible escaped rib pixels
+                    // (RGB deltas 34/41/64) in the pre-fix Midnight screenshot.
+                    for(const auto point:std::array<juce::Point<int>,3>{{
+                            {600,267},{590,270},{585,273}}}) {
+                        const auto outside=image.getPixelAt(point.x,point.y);
+                        const int diff=std::abs(int(expected.getRed())-int(outside.getRed()))
+                                     +std::abs(int(expected.getGreen())-int(outside.getGreen()))
+                                     +std::abs(int(expected.getBlue())-int(outside.getBlue()));
+                        if(diff>10)
+                            errors.add("Signal ribs escape scope into Wave label area");
+                    }
+                }
+            }
             int shownDials=0;
             for(auto* dial:macroDials)if(dial->isVisible())++shownDials;
             if(shownDials!=1)errors.add("Character dial count must equal one");
