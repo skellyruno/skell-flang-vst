@@ -241,7 +241,9 @@ int main(int argc,char** argv){
                 {"Skell-Flang-720-chorus-graphite",720,500,0,0,false}
             };
         }
+        juce::String currentScene;
         options.configure=[&](const auto& scene) {
+            currentScene=scene.id;
             const int desired=scene.mode;
             const int bank=desired==0?0:desired==1?4:desired==6?7:desired==4?10:13;
             processor.applyFactoryPreset(bank);
@@ -312,6 +314,26 @@ int main(int argc,char** argv){
                 ++count;
             }
             if(count<23)errors.add("Too few visible controls");
+            if(currentScene.endsWith("-bone")) {
+                const auto image=editor->createComponentSnapshot(
+                    editor->getLocalBounds(),true);
+                if(!image.isValid())
+                    errors.add("Bone theme screenshot could not be captured");
+                else {
+                    // Measure actual scene pixels, not UI colour constants.
+                    // Before this fix the mint trace at (565,213) had only
+                    // 0.045 relative luminance contrast vs the ivory well.
+                    const auto line=image.getPixelAt(565,213);
+                    const auto well=image.getPixelAt(565,216);
+                    const auto luma=[](const juce::Colour c) {
+                        return (.2126f*float(c.getRed())+
+                                .7152f*float(c.getGreen())+
+                                .0722f*float(c.getBlue()))/255.f;
+                    };
+                    if(luma(well)-luma(line)<.12f)
+                        errors.add("Bone scope signal too faint against panel");
+                }
+            }
             if(editor->getWidth()==720) {
                 // Pixel check on actual JUCE output: both pixels are blank
                 // signal-panel surface BELOW the oscilloscope frame (y=264).

@@ -130,6 +130,10 @@ void FlangLookAndFeel::drawLinearSlider(juce::Graphics& g,int x,int y,int w,int 
     const float railBottom=float(y+h)-15.f;
     const float railLength=std::max(1.f,railBottom-railTop);
     const bool daylight=themeIndex==2;
+    // In the Bone theme, the raw neon identity colour is too light against
+    // ivory fader wells. Darken display-only rails, never the effect ID.
+    const auto railAccent=daylight
+        ?accent.interpolatedWith(foreground,.40f):accent;
     const juce::Colour wellTop=daylight?juce::Colour::fromRGB(203,207,199)
                                        :juce::Colour::fromRGB(24,34,34);
     const juce::Colour wellBottom=daylight?juce::Colour::fromRGB(187,193,185)
@@ -173,7 +177,7 @@ void FlangLookAndFeel::drawLinearSlider(juce::Graphics& g,int x,int y,int w,int 
     const float thumbY=std::clamp(pos,railTop+capHeight*.5f,
                                       railBottom-capHeight*.5f);
     // The position cue runs beneath the shuttle, just like the reference.
-    g.setColour(accent.withAlpha(daylight?.87f:.96f));
+    g.setColour(railAccent.withAlpha(daylight?.94f:.96f));
     g.drawLine(cx,thumbY+capHeight*.48f,cx,railBottom,1.55f);
 
     const float left=cx-capWidth*.5f,top=thumbY-capHeight*.5f;
@@ -250,6 +254,8 @@ void FlangLookAndFeel::drawRotarySlider(juce::Graphics&g,int x,int y,int w,int h
     const float radius=float(std::min(w,h))*.318f;
     const float rimRadius=radius+3.0f;
     const bool boneTheme=themeIndex==2;
+    const auto arcAccent=boneTheme
+        ?accent.interpolatedWith(foreground,.40f):accent;
     const auto graphite=boneTheme?juce::Colour::fromRGB(89,99,95)
                                  :juce::Colour::fromRGB(47,60,63);
     const auto edgeLight=boneTheme?juce::Colour::fromRGB(203,210,195)
@@ -276,7 +282,7 @@ void FlangLookAndFeel::drawRotarySlider(juce::Graphics&g,int x,int y,int w,int h
     juce::Path sweep;
     sweep.addCentredArc(cx,cy,rimRadius+3.5f,rimRadius+3.5f,0.f,
                         start,start+(end-start)*position,true);
-    g.setColour(accent.withAlpha(.92f));
+    g.setColour(arcAccent.withAlpha(.94f));
     g.strokePath(sweep,juce::PathStrokeType(2.05f,
                  juce::PathStrokeType::curved,juce::PathStrokeType::rounded));
 
@@ -1138,13 +1144,14 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     panelRect(g,14,351,693,132,skin);
 
     // The clickable vector skull lives in the header; no duplicate ornament.
-    const auto glow=skin.accent;
+    const auto glow=skin.themeIndex==2
+        ?skin.accent.interpolatedWith(skin.foreground,.40f):skin.accent;
     g.setColour(skin.foreground);g.setFont(juce::Font(20.f,juce::Font::bold));
     g.drawText("SKELL-FLANG",74,8,245,29,juce::Justification::centredLeft);
     // Avoid mint-on-ivory low contrast in Bone without changing effect
     // identity colours used by active layer buttons and the signal trace.
     const auto subtitleInk=skin.themeIndex==2
-        ? glow.interpolatedWith(skin.foreground,.62f):glow;
+        ? skin.accent.interpolatedWith(skin.foreground,.62f):glow;
     g.setColour(subtitleInk.withAlpha(.96f));g.setFont(juce::Font(10.8f));
     g.drawText("BEND THE BONES  /  MODULATION ENGINE",76,34,244,12,
                juce::Justification::centredLeft);
@@ -1250,7 +1257,7 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     const juce::String description=stackEnabled
         ? ("LAYERS  "+juce::String(count)+"/5     "+names)
         : ("LEGACY MODE  /  "+juce::String(modes[std::clamp(shownMode,0,7)]));
-    g.setColour(skin.accent.withAlpha(skin.themeIndex==2?.78f:.86f));
+    g.setColour(glow.withAlpha(skin.themeIndex==2?.92f:.86f));
     g.fillEllipse(29.f,461.3f,5.f,5.f);
     g.setColour(skin.foreground.withAlpha(.80f));
     g.setFont(juce::Font(11.2f,juce::Font::bold));
