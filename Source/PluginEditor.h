@@ -26,6 +26,7 @@ public:
     juce::Font getTextButtonFont(juce::TextButton&,int buttonHeight) override;
     juce::Font getComboBoxFont(juce::ComboBox&) override;
     juce::Font getPopupMenuFont() override;
+    void drawCornerResizer(juce::Graphics&,int,int,bool,bool) override;
     void drawPopupMenuBackground(juce::Graphics&,int,int) override;
     void drawPopupMenuSectionHeader(juce::Graphics&,const juce::Rectangle<int>&,
                                     const juce::String&) override;

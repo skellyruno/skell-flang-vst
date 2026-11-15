@@ -385,14 +385,16 @@ void FlangLookAndFeel::drawButtonBackground(juce::Graphics&g,juce::Button&button
     }
 
     if(id=="lfo-sync") {
+        const auto glyphAccent=daylight
+            ? accent.interpolatedWith(foreground,.55f):accent;
         // A compact metronome / circular-arrows glyph, driven by the real
         // lfoSync APVTS state rather than decorative animation.
         g.setColour(selected?accent.withAlpha(.19f):surface);
         g.fillRoundedRectangle(b,5.5f);
-        g.setColour(selected?accent.withAlpha(.94f):outline.withAlpha(.90f));
+        g.setColour(selected?glyphAccent.withAlpha(.94f):outline.withAlpha(.90f));
         g.drawRoundedRectangle(b,5.5f,selected?1.25f:.8f);
         const float cx=b.getCentreX(),cy=b.getCentreY();
-        g.setColour(selected?accent:secondary.withAlpha(.83f));
+        g.setColour(selected?glyphAccent:secondary.withAlpha(.83f));
         juce::Path pulse;
         pulse.startNewSubPath(cx-8.3f,cy-2.f);
         pulse.lineTo(cx-4.6f,cy-2.f);
@@ -509,27 +511,36 @@ void FlangLookAndFeel::drawButtonBackground(juce::Graphics&g,juce::Button&button
     const int modeIndex=modeButton?juce::jlimit(0,7,
          id.fromFirstOccurrenceOf("mode-",false,false).getIntValue()):0;
     const auto buttonAccent=modeButton?tints[modeIndex]:accent;
+    // Bone is intentionally light. Darken status accents sufficiently that
+    // enabled layers remain legible against the pale front panel.
+    const auto stateAccent=daylight
+        ? buttonAccent.interpolatedWith(foreground,.45f):buttonAccent;
     const bool focused=modeButton&&bool(button.getProperties().getWithDefault(
          "focused",false));
     g.setColour(juce::Colours::black.withAlpha(daylight?.05f:.25f));
     g.fillRoundedRectangle(b.translated(0.f,1.f),radius);
     const auto top=selected?surface.brighter(.32f):
                    (hover?surface.brighter(.22f):surface.brighter(.10f));
-    const auto bottom=selected?buttonAccent.withAlpha(daylight?.08f:.16f):
+    const auto bottom=selected?stateAccent.withAlpha(daylight?.12f:.16f):
                       (hover?surface:recess);
     g.setGradientFill(juce::ColourGradient(
         top,b.getX(),b.getY(),bottom,b.getX(),b.getBottom(),false));
     g.fillRoundedRectangle(b,radius);
-    g.setColour(selected?buttonAccent.withAlpha(focused?.96f:.70f):
-                hover?buttonAccent.withAlpha(.55f):outline.withAlpha(.77f));
+    g.setColour(selected?stateAccent.withAlpha(focused?.96f:.70f):
+                hover?stateAccent.withAlpha(.55f):outline.withAlpha(.77f));
     g.drawRoundedRectangle(b,radius,selected?focused?1.50f:1.1f:.82f);
     g.setColour(juce::Colours::white.withAlpha(daylight?.24f:.08f));
     g.drawLine(b.getX()+6.f,b.getY()+1.4f,
                b.getRight()-6.f,b.getY()+1.4f,.65f);
     if(modeButton&&selected) {
-        g.setColour(buttonAccent.withAlpha(.94f));
+        g.setColour(stateAccent.withAlpha(.94f));
         g.fillRoundedRectangle(b.getX()+5.1f,b.getCentreY()-4.5f,
                                1.7f,9.f,.85f);
+        if(focused) {
+            // The dot distinguishes the layer currently being edited from
+            // other active layers, without another label or button.
+            g.fillEllipse(b.getRight()-10.f,b.getCentreY()-1.75f,3.5f,3.5f);
+        }
     }
     if(down) {
         g.setColour(accent.withAlpha(.12f));
@@ -640,6 +651,20 @@ void FlangLookAndFeel::getIdealPopupMenuItemSize(
         const juce::String& text,bool separator,int,int& width,int& height) {
     width=separator?30:juce::jmax(172,juce::roundToInt(juce::Font(10.8f).getStringWidthFloat(text))+48);
     height=separator?7:24;
+}
+void FlangLookAndFeel::drawCornerResizer(juce::Graphics& g,int width,int height,
+                                          bool hovered,bool dragging) {
+    // Replace the stock white/black diagonal handle with a restrained
+    // theme-aware grip. Keep the actual JUCE resize interaction intact.
+    const auto ink=dragging||hovered ? accent.withAlpha(.90f)
+                                    : secondary.withAlpha(.55f);
+    g.setColour(themeIndex==2?ink.interpolatedWith(foreground,.30f):ink);
+    const float x=float(width)-3.5f;
+    const float y=float(height)-3.5f;
+    for(int i=0;i<3;++i) {
+        const float d=5.f+4.2f*float(i);
+        g.drawLine(x-d,y,x,y-d,1.05f);
+    }
 }
 SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioProcessor& p)
 : AudioProcessorEditor(&p),processor(p) {
@@ -970,7 +995,10 @@ void SkellFlangAudioProcessorEditor::updateMode() {
         drop->setColour(juce::ComboBox::backgroundColourId,skin.recess);
         drop->setColour(juce::ComboBox::textColourId,skin.foreground);
         drop->setColour(juce::ComboBox::outlineColourId,skin.outline);
-        drop->setColour(juce::ComboBox::arrowColourId,skin.accent);
+        drop->setColour(juce::ComboBox::arrowColourId,
+            skin.themeIndex==2
+                ? skin.accent.interpolatedWith(skin.foreground,.55f)
+                : skin.accent);
     }
     for(auto& t:tabs){
         t.setColour(juce::TextButton::textColourOffId,skin.foreground);
@@ -1099,7 +1127,11 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     const auto glow=skin.accent;
     g.setColour(skin.foreground);g.setFont(juce::Font(20.f,juce::Font::bold));
     g.drawText("SKELL-FLANG",74,8,245,29,juce::Justification::centredLeft);
-    g.setColour(glow.withAlpha(.9f));g.setFont(juce::Font(10.5f));
+    // Avoid mint-on-ivory low contrast in Bone without changing effect
+    // identity colours used by active layer buttons and the signal trace.
+    const auto subtitleInk=skin.themeIndex==2
+        ? glow.interpolatedWith(skin.foreground,.62f):glow;
+    g.setColour(subtitleInk.withAlpha(.96f));g.setFont(juce::Font(10.8f));
     g.drawText("BEND THE BONES  /  MODULATION ENGINE",76,34,244,12,
                juce::Justification::centredLeft);
 
@@ -1108,7 +1140,7 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.drawText("01  /  CONTROL DECK",27,130,170,16,juce::Justification::left);
     g.setColour(skin.secondary);
     g.setFont(juce::Font(10.5f));
-    g.drawText("ORD",24,316,54,20,juce::Justification::centred);
+    g.drawFittedText("VOICES",24,316,54,20,juce::Justification::centred,1);
     g.drawText("02  /  SIGNAL",550,130,143,16,juce::Justification::left);
 
     // Small technical divider motifs make the layout distinctive, not busy.
@@ -1121,13 +1153,17 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.fillRoundedRectangle(scope,5.f);
     g.setColour(skin.outline);
     g.drawRoundedRectangle(scope,5.f,.8f);
+    // The SIGNAL graphic must never escape into the WAVE dropdown. This
+    // nested clip applies to ribs and the live line only, not its labels.
+    g.saveState();
+    g.reduceClipRegion(scope.toNearestInt().reduced(2));
     // Ghost ribs and central spine remain faint under a live waveform.
     // They are static original vectors, not simulated audio or a bitmap.
     const float centreX=scope.getCentreX();
     g.setColour(skin.secondary.withAlpha(.20f));
     g.drawLine(centreX,scope.getY()+11.f,centreX,scope.getBottom()-11.f,1.f);
-    for(int i=0;i<6;++i) {
-        const float yy=scope.getY()+22.f+float(i)*17.2f;
+    for(int i=0;i<4;++i) {
+        const float yy=scope.getY()+23.f+float(i)*17.5f;
         const float reach=36.f+5.f*std::sin(float(i)*.55f);
         juce::Path rib;
         rib.startNewSubPath(centreX-3.f,yy);
@@ -1153,14 +1189,15 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     }
     g.setColour(glow.withAlpha(.90f));
     g.strokePath(signal,juce::PathStrokeType(1.35f));
+    g.restoreState();
 
     g.setColour(skin.secondary);g.setFont(juce::Font(10.5f));
     const juce::String annotation=shownMode==5
         ? ("PITCH  "+juce::String(processor.meters.pitch.load(std::memory_order_relaxed),1)+" Hz")
-        : ("MODE  /  "+juce::String(modes[std::clamp(shownMode,0,7)]));
+        : ("EDIT  /  "+juce::String(modes[std::clamp(shownMode,0,7)]));
     g.drawText(annotation,554,316,142,16,juce::Justification::left);
     g.setColour(skin.secondary.withAlpha(.84f));
-    g.setFont(juce::Font(9.3f,juce::Font::bold));
+    g.setFont(juce::Font(10.5f,juce::Font::bold));
     g.drawText("WAVE",556,274,136,13,juce::Justification::left);
 
     // Every parameter is available without entering a separate MOD page.
@@ -1168,7 +1205,7 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.setFont(juce::Font(10.5f,juce::Font::bold));
     g.drawFittedText("03 / TONE",27,367,84,15,
                      juce::Justification::centredLeft,1);
-    g.setFont(juce::Font(9.4f));
+    g.setFont(juce::Font(10.2f));
     g.drawFittedText("ESSENTIALS",27,394,92,13,
                      juce::Justification::centredLeft,1);
     // Separate the three always-visible tone knobs from one focused character
@@ -1177,7 +1214,8 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.drawLine(372.f,365.f,372.f,440.f,.9f);
     g.setColour(skin.secondary);
     g.setFont(juce::Font(10.f,juce::Font::bold));
-    g.drawText("CHARACTER",383,357,150,15,juce::Justification::centredLeft);
+    g.drawFittedText("CHARACTER / "+juce::String(modes[std::clamp(shownMode,0,7)]),
+                     383,357,213,15,juce::Justification::centredLeft,1);
     g.setColour(skin.accent.withAlpha(.78f));
     g.fillRoundedRectangle(383.f,373.f,32.f,1.2f,.6f);
     g.setColour(skin.outline);
@@ -1197,12 +1235,12 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.drawFittedText(description,29,453,660,24,
                      juce::Justification::centredLeft,1);
     // Footer remains legible when the editor is scaled to compact mode.
-    g.setColour(skin.secondary);g.setFont(juce::Font(11.f));
+    g.setColour(skin.secondary);g.setFont(juce::Font(11.5f));
     g.drawText("LIVE  /  "+juce::String(processor.meters.bpm.load(std::memory_order_relaxed),1)+
                " BPM   /   PDC "+juce::String(processor.getLatencySamples())+
                "   /   CPU "+juce::String(processor.meters.cpu.load(std::memory_order_relaxed),1)+
                "%   /   "+juce::String(modes[std::clamp(shownMode,0,7)]),
-               20,486,685,14,juce::Justification::centredLeft);
+               20,482,685,14,juce::Justification::centredLeft);
     g.restoreState();
 }
 
