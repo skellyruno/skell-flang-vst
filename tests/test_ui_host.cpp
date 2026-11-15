@@ -213,6 +213,12 @@ int main(int argc,char** argv){
                 scene.browser=false;
                 options.scenes.push_back(scene);
             }
+        // Five simultaneous layers at the smallest host size, plus a lit
+        // tempo-sync icon, are important real-UI edge cases beyond pairs.
+        options.scenes.push_back(
+            {"Skell-Flang-540-chorus-all-five",540,375,0,0,true});
+        options.scenes.push_back(
+            {"Skell-Flang-720-chorus-sync",720,500,0,0,false});
         // Visual coverage for all four contextual macros in every effect.
         // These screenshots capture a real renderer image, not a mockup.
         for(size_t mode=0;mode<choices.size();++mode)
@@ -243,9 +249,22 @@ int main(int argc,char** argv){
                 const int extra=desired==0?1:0;
                 click(findButton(*editor,extra==0?"CHORUS":"FLANGER"),
                       "Second layer could not be enabled in renderer");
+                if(scene.id.contains("-all-five")) {
+                    for(const auto* name:{"FLANGUS","ORBIT","DIMENSION"})
+                        click(findButton(*editor,name),
+                              "Cannot build all-five-effect UI test");
+                    for(const auto* id:SkellFlangAudioProcessor::layerParameterIDs) {
+                        const auto* value=processor.parameters.getRawParameterValue(id);
+                        verify(value&&value->load(std::memory_order_relaxed)>.5f,
+                               "Five-layer UI test did not turn every effect on");
+                    }
+                }
                 if(auto* p=processor.parameters.getParameter("mode"))
                     p->setValueNotifyingHost(p->convertTo0to1(float(desired)));
             }
+            if(scene.id.endsWith("-sync"))
+                if(auto* p=processor.parameters.getParameter("lfoSync"))
+                    p->setValueNotifyingHost(p->convertTo0to1(1.f));
             // Three skull clicks force a refresh even when target theme is
             // already correct (the preset is applied by the host).
             for(int i=0;i<3;++i)
@@ -346,6 +365,8 @@ int main(int argc,char** argv){
         };
         options.mustDiffer={
             {"Skell-Flang-540-chorus-solo","Skell-Flang-540-chorus-stacked"},
+            {"Skell-Flang-540-chorus-stacked","Skell-Flang-540-chorus-all-five"},
+            {"Skell-Flang-720-chorus-solo","Skell-Flang-720-chorus-sync"},
             {"Skell-Flang-540-flanger-solo","Skell-Flang-540-flangus-solo"},
             {"Skell-Flang-540-orbit-solo","Skell-Flang-540-dimension-solo"},
             {"Skell-Flang-720-chorus-solo","Skell-Flang-720-chorus-graphite"},
@@ -371,7 +392,7 @@ int main(int argc,char** argv){
         for(const auto& error:report.errors)
             std::cerr<<"Visual regression: "<<error.toStdString()<<"\n";
         verify(report.passed(),"Shared SkellCore visual regression failed");
-        verify(report.captured==(full?70:4),"Wrong screenshot count for selected mode");
+        verify(report.captured==(full?72:4),"Wrong screenshot count for selected mode");
         if(!full) {
             const std::array<const char*,4> names{{
                 "Skell-Flang-720-chorus-solo",
