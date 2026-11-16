@@ -428,6 +428,31 @@ void FlangLookAndFeel::drawButtonBackground(juce::Graphics&g,juce::Button&button
         return;
     }
 
+    if(id=="edit-next") {
+        // A small, discoverable navigation affordance in CHARACTER's header.
+        // This is edit focus only; it does not imply audio bypass or layer mute.
+        const auto displayAccent=daylight
+            ? accent.interpolatedWith(foreground,.50f):accent;
+        g.setColour(hover?surface.brighter(.22f):surface);
+        g.fillRoundedRectangle(b,4.f);
+        // Visible enough at 540px without becoming a full-size action pad.
+        g.setColour(displayAccent.withAlpha(hover?.96f:.62f));
+        g.drawRoundedRectangle(b,4.f,.95f);
+        if(down) {
+            g.setColour(displayAccent.withAlpha(.14f));
+            g.fillRoundedRectangle(b.reduced(1.5f),3.f);
+        }
+        const float cx=b.getCentreX(),cy=b.getCentreY();
+        g.setColour(displayAccent.withAlpha(.95f));
+        juce::Path chevron;
+        chevron.startNewSubPath(cx-2.0f,cy-3.3f);
+        chevron.lineTo(cx+1.6f,cy);
+        chevron.lineTo(cx-2.0f,cy+3.3f);
+        g.strokePath(chevron,juce::PathStrokeType(1.5f,
+            juce::PathStrokeType::curved,juce::PathStrokeType::rounded));
+        return;
+    }
+
     if(id=="skull"||id=="settings") {
         // Compact, precisely bounded utility buttons; no oversized square
         // around the gear. The skull remains a functional three-theme switch.
@@ -571,7 +596,7 @@ void FlangLookAndFeel::drawButtonBackground(juce::Graphics&g,juce::Button&button
 void FlangLookAndFeel::drawButtonText(juce::Graphics& g,
                                      juce::TextButton& button,bool hover,bool down) {
     const auto id=button.getComponentID();
-    if(id=="skull"||id=="settings"||id=="lfo-sync")return;
+    if(id=="skull"||id=="settings"||id=="lfo-sync"||id=="edit-next")return;
     const auto bounds=button.getLocalBounds();
     if(id=="preset") {
         const float height=float(bounds.getHeight());
@@ -755,6 +780,32 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         knobLinks[i]=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
             p.parameters,id,knobs[i]);
     }
+    editNext.setComponentID("edit-next");
+    editNext.setTooltip("Edit next enabled effect; audio layers keep playing");
+    editNext.setVisible(false); // solo and legacy sessions have no next effect
+    editNext.onClick=[this] {
+        const auto* current=processor.parameters.getRawParameterValue("mode");
+        const int activeMode=current?int(current->load(std::memory_order_relaxed)):0;
+        int currentIndex=-1;
+        for(size_t i=0;i<visibleModes.size();++i)
+            if(visibleModes[i]==activeMode)currentIndex=int(i);
+        for(int step=1;step<=int(visibleModes.size());++step) {
+            const int i=(currentIndex+step+int(visibleModes.size()))%
+                        int(visibleModes.size());
+            const auto* flag=processor.parameters.getRawParameterValue(
+                SkellFlangAudioProcessor::layerParameterIDs[size_t(i)]);
+            if(!flag||flag->load(std::memory_order_relaxed)<=.5f)continue;
+            if(auto* focus=processor.parameters.getParameter("mode")) {
+                focus->beginChangeGesture();
+                focus->setValueNotifyingHost(
+                    focus->convertTo0to1(float(visibleModes[size_t(i)])));
+                focus->endChangeGesture();
+            }
+            updateMode();
+            return;
+        }
+    };
+    addAndMakeVisible(editNext);
     for(int i=0;i<4;++i) {
         auto& button=macroTabs[size_t(i)];
         button.setComponentID("macro-"+juce::String(i));
@@ -1006,6 +1057,9 @@ void SkellFlangAudioProcessorEditor::resized() {
     }
     place(shape,553,288,143,25);
     place(sync,610,13,32,32);
+    // In the free strip between CHARACTER caption and the right macro dial.
+    // No overlap with the four existing parameter selectors at minimum size.
+    place(editNext,566,351,28,22);
 }
 void SkellFlangAudioProcessorEditor::markPresetCustom() {
     // Keep the sound library honest when a user edits a factory patch.
@@ -1034,6 +1088,13 @@ void SkellFlangAudioProcessorEditor::updateMode() {
     if(preset.getButtonText()!=presetName)preset.setButtonText(presetName);
     const bool modeChanged=selected!=shownMode;
     const bool layersChanged=layers!=shownLayers;
+    int activeCount=0;
+    for(bool on:layers)if(on)++activeCount;
+    // This is deliberately not enabled in legacy project mode. The button
+    // only navigates among genuinely enabled audio engines in Layer Stack.
+    const bool canAdvance=!legacy&&activeCount>1;
+    if(editNext.isVisible()!=canAdvance)
+        editNext.setVisible(canAdvance);
     if(!modeChanged&&!layersChanged&&theme==shownTheme)return;
     shownLayers=layers;
     shownMode=selected;
@@ -1064,14 +1125,14 @@ void SkellFlangAudioProcessorEditor::updateMode() {
         t.setColour(juce::TextButton::textColourOnId,skin.foreground);
         t.repaint();
     }
-    for(auto* t:{&preset,&settings,&skull,&sync}){
+    for(auto* t:{&preset,&settings,&skull,&sync,&editNext}){
         t->setColour(juce::TextButton::textColourOffId,skin.foreground);
         t->setColour(juce::TextButton::textColourOnId,skin.foreground);
     }
     for(auto& slider:faders)slider.repaint();
     for(auto& slider:knobs)slider.repaint();
     for(auto& tab:tabs)tab.repaint();
-    for(auto* button:{&skull,&settings,&preset,&sync})button->repaint();
+    for(auto* button:{&skull,&settings,&preset,&sync,&editNext})button->repaint();
     order.repaint();
     for(int i=0;i<5;++i) {
         tabs[size_t(i)].setToggleState(layers[size_t(i)],
@@ -1275,8 +1336,9 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.drawLine(372.f,365.f,372.f,440.f,.9f);
     g.setColour(skin.secondary);
     g.setFont(juce::Font(10.f,juce::Font::bold));
+    // Leave an actual 6px visual gap before the edit-next chevron.
     g.drawFittedText("CHARACTER / "+juce::String(modes[std::clamp(shownMode,0,7)]),
-                     383,357,213,15,juce::Justification::centredLeft,1);
+                     383,357,174,15,juce::Justification::centredLeft,1);
     g.setColour(skin.accent.withAlpha(.78f));
     g.fillRoundedRectangle(383.f,373.f,32.f,1.2f,.6f);
     g.setColour(skin.outline);

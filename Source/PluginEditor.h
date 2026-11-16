@@ -62,6 +62,9 @@ private:
     std::array<juce::Label,7> knobLabels;
     // Keep four real APVTS attachments, but only show one macro dial at a time.
     std::array<juce::TextButton,4> macroTabs;
+    // Revealed only for multi-layer mode: change the edited effect without
+    // switching any audio engine off. Host parameter IDs are unchanged.
+    juce::TextButton editNext{""};
     int selectedMacro=0;
     std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>,7> knobLinks;
     std::array<juce::TextButton,5> tabs;
