@@ -137,6 +137,9 @@ int main(int argc,char** argv){
         verify(processor.parameters.getRawParameterValue("layerChorus")->load()>.5f,
                "All-off click is not guarded");
         processor.applyFactoryPreset(0);
+        // The host-only fixture applies a preset without running a GUI event
+        // loop. Trigger the same refresh normally delivered by timerCallback.
+        click(skull,"Could not refresh the factory preset display");
         // Host/factory attachment changes do not silently rename the patch.
         verify(preset->getButtonText()=="INIT",
                "Loading factory patch wrongly marked it CUSTOM");
