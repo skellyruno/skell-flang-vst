@@ -281,6 +281,9 @@ int main(int argc,char** argv){
                 scene.browser=false;
                 options.scenes.push_back(scene);
             }
+        // Check compact typography with the real alternative Graphite skin.
+        options.scenes.push_back(
+            {"Skell-Flang-540-chorus-graphite",540,375,0,0,false});
         // Five simultaneous layers at the smallest host size, plus a lit
         // tempo-sync icon, are important real-UI edge cases beyond pairs.
         options.scenes.push_back(
@@ -423,7 +426,9 @@ int main(int argc,char** argv){
                 const char* allModes[]{"CHORUS","FLANGER","VOWEL (LEGACY)",
                     "REVERSE (LEGACY)","ORBIT","TUNED (LEGACY)",
                     "FLANGUS","DIMENSION"};
-                const float labelWidth=juce::Font(10.f,juce::Font::bold)
+                const float boosted=juce::jmap(
+                    juce::jlimit(.75f,1.f,scale),.75f,1.f,1.18f,1.f);
+                const float labelWidth=juce::Font(10.f*boosted,juce::Font::bold)
                     .getStringWidthFloat("CHARACTER / "+
                         juce::String(allModes[juce::jlimit(0,7,focused)]));
                 const float gap=editNext->getX()/scale-(383.f+labelWidth);
@@ -508,6 +513,7 @@ int main(int argc,char** argv){
         };
         options.mustDiffer={
             {"Skell-Flang-540-chorus-solo","Skell-Flang-540-chorus-stacked"},
+            {"Skell-Flang-540-chorus-solo","Skell-Flang-540-chorus-graphite"},
             {"Skell-Flang-540-chorus-stacked","Skell-Flang-540-chorus-all-five"},
             {"Skell-Flang-720-chorus-stacked","Skell-Flang-720-chorus-edit-flanger"},
             {"Skell-Flang-720-chorus-stacked","Skell-Flang-720-chorus-edit-next"},
@@ -538,7 +544,7 @@ int main(int argc,char** argv){
         for(const auto& error:report.errors)
             std::cerr<<"Visual regression: "<<error.toStdString()<<"\n";
         verify(report.passed(),"Shared SkellCore visual regression failed");
-        verify(report.captured==(full?75:4),"Wrong screenshot count for selected mode");
+        verify(report.captured==(full?76:4),"Wrong screenshot count for selected mode");
         if(!full) {
             const std::array<const char*,4> names{{
                 "Skell-Flang-720-chorus-solo",

@@ -10,18 +10,22 @@ const char* modes[]{"CHORUS","FLANGER","VOWEL (LEGACY)","REVERSE (LEGACY)",
                      "ORBIT","TUNED (LEGACY)","FLANGUS","DIMENSION"};
 constexpr std::array<int,5> visibleModes{0,1,6,4,7};
 constexpr float characterTitleX=383.f;
+// Improve micro typography at the compact 540px minimum, preserving the
+// original sizes from 720px upward and never increasing the window size.
+float compactTextBoost(float scale) {
+    return juce::jmap(juce::jlimit(.75f,1.f,scale),.75f,1.f,1.18f,1.f);
+}
 juce::String characterTitle(const int mode) {
     return "CHARACTER / "+juce::String(modes[std::clamp(mode,0,7)]);
 }
-float characterTitleWidth(const int mode) {
-    // Match the exact font used by paint(), even at fractional UI scales.
-    return juce::Font(10.f,juce::Font::bold)
+float characterTitleWidth(const int mode,const float scale) {
+    // Caption and chevron share the exact same responsive font metrics.
+    return juce::Font(10.f*compactTextBoost(scale),juce::Font::bold)
         .getStringWidthFloat(characterTitle(mode));
 }
-float editChevronX(const int mode) {
-    // Before: permanently x=566, leaving ~60px after shorter effect labels.
+float editChevronX(const int mode,const float scale) {
     return juce::jlimit(483.f,562.f,
-                        characterTitleX+characterTitleWidth(mode)+8.f);
+                        characterTitleX+characterTitleWidth(mode,scale)+8.f);
 }
 const char* lanes[]{"DEPTH","SPEED","DELAY","SPREAD","CROSS","DRY","WET"};
 const char* knobNames[][4]{
@@ -1078,7 +1082,7 @@ void SkellFlangAudioProcessorEditor::updateEditChevronBounds() {
     const auto* focused=processor.parameters.getRawParameterValue("mode");
     const int mode=std::clamp(focused?int(focused->load(std::memory_order_relaxed)):0,0,7);
     const float scale=getWidth()/float(baseW);
-    editNext.setBounds(juce::roundToInt(editChevronX(mode)*scale),
+    editNext.setBounds(juce::roundToInt(editChevronX(mode,scale)*scale),
                        juce::roundToInt(352.f*scale),
                        juce::roundToInt(29.f*scale),
                        juce::roundToInt(21.f*scale));
@@ -1280,11 +1284,12 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.drawText("BEND THE BONES  /  MODULATION ENGINE",76,34,244,12,
                juce::Justification::centredLeft);
 
-    g.setColour(skin.foreground.withAlpha(.86f));
-    g.setFont(juce::Font(10.5f,juce::Font::bold));
+    const float typeBoost=compactTextBoost(s);
+    g.setColour(skin.foreground.withAlpha(.91f));
+    g.setFont(juce::Font(10.5f*typeBoost,juce::Font::bold));
     g.drawText("01  /  CONTROL DECK",27,130,170,16,juce::Justification::left);
     g.setColour(skin.secondary);
-    g.setFont(juce::Font(10.5f));
+    g.setFont(juce::Font(10.5f*typeBoost));
     g.drawFittedText("VOICES",24,316,54,20,juce::Justification::centred,1);
     g.drawText("02  /  SIGNAL",550,130,143,16,juce::Justification::left);
 
@@ -1336,21 +1341,21 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.strokePath(signal,juce::PathStrokeType(1.35f));
     g.restoreState();
 
-    g.setColour(skin.secondary);g.setFont(juce::Font(10.5f));
+    g.setColour(skin.secondary);g.setFont(juce::Font(10.5f*typeBoost));
     const juce::String annotation=shownMode==5
         ? ("PITCH  "+juce::String(processor.meters.pitch.load(std::memory_order_relaxed),1)+" Hz")
         : ("EDIT  /  "+juce::String(modes[std::clamp(shownMode,0,7)]));
     g.drawText(annotation,554,316,142,16,juce::Justification::left);
-    g.setColour(skin.secondary.withAlpha(.84f));
-    g.setFont(juce::Font(10.5f,juce::Font::bold));
+    g.setColour(skin.secondary.withAlpha(.90f));
+    g.setFont(juce::Font(10.5f*typeBoost,juce::Font::bold));
     g.drawText("WAVE",556,274,136,13,juce::Justification::left);
 
     // Every parameter is available without entering a separate MOD page.
     g.setColour(skin.secondary);
-    g.setFont(juce::Font(10.5f,juce::Font::bold));
+    g.setFont(juce::Font(10.5f*typeBoost,juce::Font::bold));
     g.drawFittedText("03 / TONE",27,367,84,15,
                      juce::Justification::centredLeft,1);
-    g.setFont(juce::Font(10.2f));
+    g.setFont(juce::Font(10.2f*typeBoost));
     g.drawFittedText("ESSENTIALS",27,394,92,13,
                      juce::Justification::centredLeft,1);
     // Separate the three always-visible tone knobs from one focused character
@@ -1358,11 +1363,11 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.setColour(skin.outline);
     g.drawLine(372.f,365.f,372.f,440.f,.9f);
     g.setColour(skin.secondary);
-    g.setFont(juce::Font(10.f,juce::Font::bold));
-    // Leave an actual 6px visual gap before the edit-next chevron.
+    g.setFont(juce::Font(10.f*typeBoost,juce::Font::bold));
+    // The label and edit arrow track each other even when 540px text grows.
     const int drawnMode=std::clamp(shownMode,0,7);
     const auto focusedTitle=characterTitle(drawnMode);
-    const int titleBounds=juce::roundToInt(characterTitleWidth(drawnMode))+3;
+    const int titleBounds=juce::roundToInt(characterTitleWidth(drawnMode,s))+3;
     g.drawFittedText(focusedTitle,383,357,titleBounds,15,
                      juce::Justification::centredLeft,1);
     g.setColour(skin.accent.withAlpha(.78f));
@@ -1387,18 +1392,19 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
         : ("LEGACY MODE  /  "+juce::String(modes[std::clamp(shownMode,0,7)]));
     g.setColour(glow.withAlpha(skin.themeIndex==2?.92f:.86f));
     g.fillEllipse(29.f,461.3f,5.f,5.f);
-    g.setColour(skin.foreground.withAlpha(.80f));
-    g.setFont(juce::Font(11.2f,juce::Font::bold));
+    g.setColour(skin.foreground.withAlpha(.89f));
+    g.setFont(juce::Font(11.2f*typeBoost,juce::Font::bold));
     g.drawFittedText(description,42,453,652,24,
                      juce::Justification::centredLeft,1);
     // Tempo/PDC/CPU describe the whole plugin, not just the edited effect.
     // Shorter copy also improves readability at the 540-pixel editor minimum.
-    g.setColour(skin.secondary);g.setFont(juce::Font(11.5f));
+    g.setColour(skin.secondary.withAlpha(.98f));
+    g.setFont(juce::Font(11.5f*typeBoost));
     g.drawFittedText("TEMPO  /  "+
                      juce::String(processor.meters.bpm.load(std::memory_order_relaxed),1)+
                      " BPM   /   PDC "+juce::String(processor.getLatencySamples())+
                      "   /   CPU "+juce::String(processor.meters.cpu.load(std::memory_order_relaxed),1)+"%",
-                     20,482,685,14,juce::Justification::centredLeft,1);
+                     20,481,685,16,juce::Justification::centredLeft,1);
     g.restoreState();
 }
 
