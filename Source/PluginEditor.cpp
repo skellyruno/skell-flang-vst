@@ -130,6 +130,10 @@ void FlangLookAndFeel::drawLinearSlider(juce::Graphics& g,int x,int y,int w,int 
     const float railBottom=float(y+h)-15.f;
     const float railLength=std::max(1.f,railBottom-railTop);
     const bool daylight=themeIndex==2;
+    // In the Bone theme, the raw neon identity colour is too light against
+    // ivory fader wells. Darken display-only rails, never the effect ID.
+    const auto railAccent=daylight
+        ?accent.interpolatedWith(foreground,.40f):accent;
     const juce::Colour wellTop=daylight?juce::Colour::fromRGB(203,207,199)
                                        :juce::Colour::fromRGB(24,34,34);
     const juce::Colour wellBottom=daylight?juce::Colour::fromRGB(187,193,185)
@@ -173,7 +177,7 @@ void FlangLookAndFeel::drawLinearSlider(juce::Graphics& g,int x,int y,int w,int 
     const float thumbY=std::clamp(pos,railTop+capHeight*.5f,
                                       railBottom-capHeight*.5f);
     // The position cue runs beneath the shuttle, just like the reference.
-    g.setColour(accent.withAlpha(daylight?.87f:.96f));
+    g.setColour(railAccent.withAlpha(daylight?.94f:.96f));
     g.drawLine(cx,thumbY+capHeight*.48f,cx,railBottom,1.55f);
 
     const float left=cx-capWidth*.5f,top=thumbY-capHeight*.5f;
@@ -250,6 +254,8 @@ void FlangLookAndFeel::drawRotarySlider(juce::Graphics&g,int x,int y,int w,int h
     const float radius=float(std::min(w,h))*.318f;
     const float rimRadius=radius+3.0f;
     const bool boneTheme=themeIndex==2;
+    const auto arcAccent=boneTheme
+        ?accent.interpolatedWith(foreground,.40f):accent;
     const auto graphite=boneTheme?juce::Colour::fromRGB(89,99,95)
                                  :juce::Colour::fromRGB(47,60,63);
     const auto edgeLight=boneTheme?juce::Colour::fromRGB(203,210,195)
@@ -276,7 +282,7 @@ void FlangLookAndFeel::drawRotarySlider(juce::Graphics&g,int x,int y,int w,int h
     juce::Path sweep;
     sweep.addCentredArc(cx,cy,rimRadius+3.5f,rimRadius+3.5f,0.f,
                         start,start+(end-start)*position,true);
-    g.setColour(accent.withAlpha(.92f));
+    g.setColour(arcAccent.withAlpha(.94f));
     g.strokePath(sweep,juce::PathStrokeType(2.05f,
                  juce::PathStrokeType::curved,juce::PathStrokeType::rounded));
 
@@ -387,24 +393,38 @@ void FlangLookAndFeel::drawButtonBackground(juce::Graphics&g,juce::Button&button
     if(id=="lfo-sync") {
         const auto glyphAccent=daylight
             ? accent.interpolatedWith(foreground,.55f):accent;
-        // A compact metronome / circular-arrows glyph, driven by the real
-        // lfoSync APVTS state rather than decorative animation.
-        g.setColour(selected?accent.withAlpha(.19f):surface);
+        // The previous heartbeat glyph looked like an audio monitor, not
+        // tempo synchronization. Use a clear circular sync-arrow around two
+        // musical beat ticks. The real APVTS toggle drives its on/off colour.
+        g.setColour(selected?glyphAccent.withAlpha(.16f):surface);
         g.fillRoundedRectangle(b,5.5f);
         g.setColour(selected?glyphAccent.withAlpha(.94f):outline.withAlpha(.90f));
         g.drawRoundedRectangle(b,5.5f,selected?1.25f:.8f);
         const float cx=b.getCentreX(),cy=b.getCentreY();
-        g.setColour(selected?glyphAccent:secondary.withAlpha(.83f));
-        juce::Path pulse;
-        pulse.startNewSubPath(cx-8.3f,cy-2.f);
-        pulse.lineTo(cx-4.6f,cy-2.f);
-        pulse.lineTo(cx-2.f,cy-6.f);
-        pulse.lineTo(cx+1.6f,cy+5.7f);
-        pulse.lineTo(cx+4.8f,cy+1.5f);
-        pulse.lineTo(cx+8.2f,cy+1.5f);
-        g.strokePath(pulse,juce::PathStrokeType(1.75f,
-                     juce::PathStrokeType::curved,juce::PathStrokeType::rounded));
-        if(selected)g.fillEllipse(cx+7.3f,cy-7.5f,2.5f,2.5f);
+        g.setColour(selected?glyphAccent:secondary.withAlpha(.92f));
+        constexpr float start=-2.15f,end=2.62f,radius=8.1f;
+        juce::Path circle;
+        for(int i=0;i<=28;++i) {
+            const float theta=start+(end-start)*(float(i)/28.f);
+            const float px=cx+radius*std::cos(theta);
+            const float py=cy+radius*std::sin(theta);
+            if(i==0)circle.startNewSubPath(px,py);
+            else circle.lineTo(px,py);
+        }
+        g.strokePath(circle,juce::PathStrokeType(1.65f,
+            juce::PathStrokeType::curved,juce::PathStrokeType::rounded));
+        const float px=cx+radius*std::cos(end);
+        const float py=cy+radius*std::sin(end);
+        const float tx=-std::sin(end),ty=std::cos(end);
+        const float nx=std::cos(end),ny=std::sin(end);
+        juce::Path arrow;
+        arrow.startNewSubPath(px-tx*4.f+nx*2.5f,py-ty*4.f+ny*2.5f);
+        arrow.lineTo(px,py);
+        arrow.lineTo(px-tx*4.f-nx*2.5f,py-ty*4.f-ny*2.5f);
+        g.strokePath(arrow,juce::PathStrokeType(1.65f,
+            juce::PathStrokeType::curved,juce::PathStrokeType::rounded));
+        g.drawLine(cx-2.5f,cy-2.1f,cx-2.5f,cy+2.6f,1.15f);
+        g.drawLine(cx+2.4f,cy-4.0f,cx+2.4f,cy+2.6f,1.15f);
         return;
     }
 
@@ -1124,13 +1144,14 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     panelRect(g,14,351,693,132,skin);
 
     // The clickable vector skull lives in the header; no duplicate ornament.
-    const auto glow=skin.accent;
+    const auto glow=skin.themeIndex==2
+        ?skin.accent.interpolatedWith(skin.foreground,.40f):skin.accent;
     g.setColour(skin.foreground);g.setFont(juce::Font(20.f,juce::Font::bold));
     g.drawText("SKELL-FLANG",74,8,245,29,juce::Justification::centredLeft);
     // Avoid mint-on-ivory low contrast in Bone without changing effect
     // identity colours used by active layer buttons and the signal trace.
     const auto subtitleInk=skin.themeIndex==2
-        ? glow.interpolatedWith(skin.foreground,.62f):glow;
+        ? skin.accent.interpolatedWith(skin.foreground,.62f):glow;
     g.setColour(subtitleInk.withAlpha(.96f));g.setFont(juce::Font(10.8f));
     g.drawText("BEND THE BONES  /  MODULATION ENGINE",76,34,244,12,
                juce::Justification::centredLeft);
@@ -1220,27 +1241,36 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.fillRoundedRectangle(383.f,373.f,32.f,1.2f,.6f);
     g.setColour(skin.outline);
     g.fillRoundedRectangle(27.f,446.f,669.f,1.f,.5f);
-    // Show real active engine names without adding a redundant control bar.
-    juce::String description="ACTIVE LAYERS   ";
+    // A selected button is the effect being EDITED, not the entire audible
+    // signal. Make the real active layer count and names explicit here, and
+    // remove the misleading focused-only effect name from the footer.
+    juce::String names;
     int count=0;
     for(size_t i=0;i<visibleModes.size();++i) {
         if(shownLayers[i]) {
-            if(count++)description+="  +  ";
-            description+=modes[visibleModes[i]];
+            if(count++)names+="  +  ";
+            names+=modes[visibleModes[i]];
         }
     }
-    if(count==0)description+="LEGACY / HOST MODE";
-    g.setColour(skin.secondary);
-    g.setFont(juce::Font(10.f,juce::Font::bold));
-    g.drawFittedText(description,29,453,660,24,
+    const auto* stackParam=processor.parameters.getRawParameterValue("layerMode");
+    const bool stackEnabled=stackParam&&stackParam->load(std::memory_order_relaxed)>.5f;
+    const juce::String description=stackEnabled
+        ? ("LAYERS  "+juce::String(count)+"/5     "+names)
+        : ("LEGACY MODE  /  "+juce::String(modes[std::clamp(shownMode,0,7)]));
+    g.setColour(glow.withAlpha(skin.themeIndex==2?.92f:.86f));
+    g.fillEllipse(29.f,461.3f,5.f,5.f);
+    g.setColour(skin.foreground.withAlpha(.80f));
+    g.setFont(juce::Font(11.2f,juce::Font::bold));
+    g.drawFittedText(description,42,453,652,24,
                      juce::Justification::centredLeft,1);
-    // Footer remains legible when the editor is scaled to compact mode.
+    // Tempo/PDC/CPU describe the whole plugin, not just the edited effect.
+    // Shorter copy also improves readability at the 540-pixel editor minimum.
     g.setColour(skin.secondary);g.setFont(juce::Font(11.5f));
-    g.drawText("LIVE  /  "+juce::String(processor.meters.bpm.load(std::memory_order_relaxed),1)+
-               " BPM   /   PDC "+juce::String(processor.getLatencySamples())+
-               "   /   CPU "+juce::String(processor.meters.cpu.load(std::memory_order_relaxed),1)+
-               "%   /   "+juce::String(modes[std::clamp(shownMode,0,7)]),
-               20,482,685,14,juce::Justification::centredLeft);
+    g.drawFittedText("TEMPO  /  "+
+                     juce::String(processor.meters.bpm.load(std::memory_order_relaxed),1)+
+                     " BPM   /   PDC "+juce::String(processor.getLatencySamples())+
+                     "   /   CPU "+juce::String(processor.meters.cpu.load(std::memory_order_relaxed),1)+"%",
+                     20,482,685,14,juce::Justification::centredLeft,1);
     g.restoreState();
 }
 
