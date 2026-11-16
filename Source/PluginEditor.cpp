@@ -712,6 +712,11 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         faders[i].onValueChange=[this,i] {
             faders[i].setTooltip(juce::String(lanes[i])+" : "+juce::String(faders[i].getValue(),2));
         };
+        faders[i].onDragStart=[this,i] {faderDragStart[size_t(i)]=faders[i].getValue();};
+        faders[i].onDragEnd=[this,i] {
+            if(std::abs(faderDragStart[size_t(i)]-faders[i].getValue())>1.0e-6)
+                markPresetCustom();
+        };
         faderLinks[i]=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
             p.parameters,id,faders[i]);
     }
@@ -720,6 +725,11 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
     order.setRange(1,8,1);
     order.setDoubleClickReturnValue(true,3);
     order.setTooltip("Number of stacked voices: 1 to 8");
+    order.onDragStart=[this] {orderDragStart=order.getValue();};
+    order.onDragEnd=[this] {
+        if(std::abs(orderDragStart-order.getValue())>1.0e-6)
+            markPresetCustom();
+    };
     addAndMakeVisible(order);
     orderLink=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         p.parameters,"order",order);
@@ -732,6 +742,11 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         addAndMakeVisible(knobLabels[i]);
         knobs[i].onValueChange=[this,i] {
             knobs[i].setTooltip(knobLabels[i].getText()+" : "+juce::String(knobs[i].getValue(),2));
+        };
+        knobs[i].onDragStart=[this,i] {knobDragStart[size_t(i)]=knobs[i].getValue();};
+        knobs[i].onDragEnd=[this,i] {
+            if(std::abs(knobDragStart[size_t(i)]-knobs[i].getValue())>1.0e-6)
+                markPresetCustom();
         };
         const auto id=i==0?"feedback":i==1?"tone":i==2?"output":
                       i==3?"extra0":i==4?"extra1":i==5?"extra2":"extra3";
@@ -761,7 +776,7 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         const int mode=visibleModes[size_t(i)];
         auto& button=tabs[size_t(i)];
         button.setButtonText(modes[mode]);
-        button.setTooltip("Click to add or remove this effect layer");
+        button.setTooltip("Click to add/remove. Shift-click an active layer to edit without muting.");
         button.setComponentID("mode-"+juce::String(mode));
         button.setClickingTogglesState(true);
         addAndMakeVisible(button);
@@ -769,6 +784,19 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
             const auto id=SkellFlangAudioProcessor::layerParameterIDs[size_t(i)];
             const auto* raw=processor.parameters.getRawParameterValue(id);
             const bool wasEnabled=raw&&raw->load(std::memory_order_relaxed)>.5f;
+            // Non-destructive focus gesture: ordinary clicks still toggle
+            // the layer as requested, but Shift-clicking an enabled layer
+            // selects its character macros without touching its audio path.
+            if(wasEnabled && juce::ModifierKeys::currentModifiers.isShiftDown()) {
+                tabs[size_t(i)].setToggleState(true,juce::dontSendNotification);
+                if(auto* focus=processor.parameters.getParameter("mode")) {
+                    focus->beginChangeGesture();
+                    focus->setValueNotifyingHost(focus->convertTo0to1(float(mode)));
+                    focus->endChangeGesture();
+                }
+                updateMode();
+                return;
+            }
             int count=0;
             for(const auto* flag:SkellFlangAudioProcessor::layerParameterIDs)
                 if(const auto* value=processor.parameters.getRawParameterValue(flag))
@@ -802,8 +830,7 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
             }
             // A hand-built combination must not keep displaying its
             // original single-effect factory preset as if unmodified.
-            processor.parameters.state.setProperty("presetName","CUSTOM",nullptr);
-            preset.setButtonText("CUSTOM");
+            markPresetCustom();
             updateMode();
         };
     }
@@ -980,6 +1007,14 @@ void SkellFlangAudioProcessorEditor::resized() {
     place(shape,553,288,143,25);
     place(sync,610,13,32,32);
 }
+void SkellFlangAudioProcessorEditor::markPresetCustom() {
+    // Keep the sound library honest when a user edits a factory patch.
+    // Callback is only used for explicit mouse drags or layer toggles; host
+    // automation and factory preset loads never mark the name as CUSTOM.
+    if(processor.parameters.state.getProperty("presetName","INIT")=="CUSTOM")return;
+    processor.parameters.state.setProperty("presetName","CUSTOM",nullptr);
+    preset.setButtonText("CUSTOM");
+}
 void SkellFlangAudioProcessorEditor::updateMode() {
     const auto* raw=processor.parameters.getRawParameterValue("mode");
     const int selected=std::clamp(raw?int(raw->load(std::memory_order_relaxed)):0,0,7);
@@ -1041,6 +1076,11 @@ void SkellFlangAudioProcessorEditor::updateMode() {
     for(int i=0;i<5;++i) {
         tabs[size_t(i)].setToggleState(layers[size_t(i)],
                                        juce::dontSendNotification);
+        tabs[size_t(i)].setTooltip(layers[size_t(i)]
+            ? (juce::String(modes[visibleModes[size_t(i)]])+
+               ": active. Click to remove; Shift-click to edit without muting.")
+            : (juce::String("Add ")+modes[visibleModes[size_t(i)]]+
+               " to the effect stack."));
         tabs[size_t(i)].getProperties().set("focused",
             layers[size_t(i)]&&visibleModes[size_t(i)]==selected);
         tabs[size_t(i)].repaint();
