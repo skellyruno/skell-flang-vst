@@ -42,7 +42,7 @@ jobs:
           & $test.FullName
           if ($LASTEXITCODE -ne 0) { throw "Quick4 native UI test failed (exit $LASTEXITCODE)" }
           & $test.FullName --full --output build/ui-smoke-full
-          if ($LASTEXITCODE -ne 0) { throw "Full 74-scene native UI and host test failed (exit $LASTEXITCODE)" }
+          if ($LASTEXITCODE -ne 0) { throw "Full 75-scene native UI and host test failed (exit $LASTEXITCODE)" }
       - name: Save real editor renders for layout inspection
         if: always()
         uses: actions/upload-artifact@v6
