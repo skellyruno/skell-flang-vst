@@ -435,14 +435,15 @@ void FlangLookAndFeel::drawButtonBackground(juce::Graphics&g,juce::Button&button
             ? accent.interpolatedWith(foreground,.50f):accent;
         g.setColour(hover?surface.brighter(.22f):surface);
         g.fillRoundedRectangle(b,4.f);
-        g.setColour((hover?displayAccent:outline).withAlpha(hover?.93f:.90f));
-        g.drawRoundedRectangle(b,4.f,.85f);
+        // Visible enough at 540px without becoming a full-size action pad.
+        g.setColour(displayAccent.withAlpha(hover?.96f:.62f));
+        g.drawRoundedRectangle(b,4.f,.95f);
         if(down) {
             g.setColour(displayAccent.withAlpha(.14f));
             g.fillRoundedRectangle(b.reduced(1.5f),3.f);
         }
         const float cx=b.getCentreX(),cy=b.getCentreY();
-        g.setColour(hover?displayAccent:secondary.withAlpha(.95f));
+        g.setColour(displayAccent.withAlpha(.95f));
         juce::Path chevron;
         chevron.startNewSubPath(cx-2.0f,cy-3.3f);
         chevron.lineTo(cx+1.6f,cy);
@@ -1058,7 +1059,7 @@ void SkellFlangAudioProcessorEditor::resized() {
     place(sync,610,13,32,32);
     // In the free strip between CHARACTER caption and the right macro dial.
     // No overlap with the four existing parameter selectors at minimum size.
-    place(editNext,579,351,25,22);
+    place(editNext,566,351,28,22);
 }
 void SkellFlangAudioProcessorEditor::markPresetCustom() {
     // Keep the sound library honest when a user edits a factory patch.
@@ -1337,7 +1338,7 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.setFont(juce::Font(10.f,juce::Font::bold));
     // Leave an actual 6px visual gap before the edit-next chevron.
     g.drawFittedText("CHARACTER / "+juce::String(modes[std::clamp(shownMode,0,7)]),
-                     383,357,190,15,juce::Justification::centredLeft,1);
+                     383,357,174,15,juce::Justification::centredLeft,1);
     g.setColour(skin.accent.withAlpha(.78f));
     g.fillRoundedRectangle(383.f,373.f,32.f,1.2f,.6f);
     g.setColour(skin.outline);
