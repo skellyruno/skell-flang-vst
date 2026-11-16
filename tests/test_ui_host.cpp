@@ -102,6 +102,23 @@ int main(int argc,char** argv){
         auto* orbit=findButton(*editor,"ORBIT");
         auto* dimension=findButton(*editor,"DIMENSION");
         click(flanger,"Could not enable a second layer");
+        auto* editNext=byID(*editor,"edit-next");
+        verify(editNext && editNext->isVisible() &&
+               editNext->getTooltip().containsIgnoreCase("next enabled effect"),
+               "Layer focus switcher missing when two effects are active");
+        verify(editNext->getBounds().getBottom()<=
+               byID(*editor,"macro-0")->getBounds().getY(),
+               "Layer focus button overlaps character macro controls");
+        click(editNext,"Cannot navigate to another active layer");
+        verify(int(processor.parameters.getRawParameterValue("mode")->load())==0 &&
+               processor.parameters.getRawParameterValue("layerChorus")->load()>.5f &&
+               processor.parameters.getRawParameterValue("layerFlanger")->load()>.5f,
+               "Changing edit focus interrupted the stacked audio layers");
+        click(editNext,"Cannot navigate back to Flanger");
+        verify(int(processor.parameters.getRawParameterValue("mode")->load())==1 &&
+               processor.parameters.getRawParameterValue("layerChorus")->load()>.5f &&
+               processor.parameters.getRawParameterValue("layerFlanger")->load()>.5f,
+               "Next-layer button did not cycle or changed effect layer flags");
         verify(flanger->getTooltip().containsIgnoreCase("Shift-click"),
                "Active effect tooltip must explain non-destructive edit focus");
         // Selecting another active effect for editing must NOT toggle it off.
@@ -134,6 +151,8 @@ int main(int argc,char** argv){
         click(dimension,"Cannot disable Dimension");
         click(flanger,"Cannot disable Flanger");
         click(chorus,"Last active layer must be protected");
+        verify(!editNext->isVisible(),
+               "Edit-next switcher must hide when only one layer is active");
         verify(processor.parameters.getRawParameterValue("layerChorus")->load()>.5f,
                "All-off click is not guarded");
         processor.applyFactoryPreset(0);
@@ -268,9 +287,12 @@ int main(int argc,char** argv){
             {"Skell-Flang-540-chorus-all-five",540,375,0,0,true});
         options.scenes.push_back(
             {"Skell-Flang-720-chorus-sync",720,500,0,0,false});
-        // Non-destructive editing focus on Flanger, while Chorus remains active.
+        // Compare the next-edit switcher and the shortcut focus on the same
+        // two enabled engines. Actual JUCE renders must show distinct focus.
         options.scenes.push_back(
             {"Skell-Flang-720-chorus-edit-flanger",720,500,0,0,true});
+        options.scenes.push_back(
+            {"Skell-Flang-720-chorus-edit-next",720,500,0,0,true});
         // Visual coverage for all four contextual macros in every effect.
         // These screenshots capture a real renderer image, not a mockup.
         for(size_t mode=0;mode<choices.size();++mode)
@@ -316,6 +338,14 @@ int main(int argc,char** argv){
                 if(auto* p=processor.parameters.getParameter("mode"))
                     p->setValueNotifyingHost(p->convertTo0to1(float(desired)));
             }
+            if(scene.id.endsWith("-edit-next")) {
+                // Processor starts with Chorus focused and Chorus + Flanger
+                // active. One click must focus the next enabled engine.
+                click(editNext,"Cannot cycle edit focus in screenshot fixture");
+                verify(processor.parameters.getRawParameterValue("layerChorus")->load()>.5f &&
+                       processor.parameters.getRawParameterValue("layerFlanger")->load()>.5f,
+                       "Cycling edit focus muted audio in screenshot fixture");
+            }
             if(scene.id.endsWith("-edit-flanger")) {
                 // The extra Flanger is already enabled; focus it with Shift,
                 // not an off/on layer toggle which would interrupt its DSP.
@@ -347,7 +377,9 @@ int main(int argc,char** argv){
                    "Preset bar shows a stale factory/custom name");
             verify(scene.browser ? expectedName=="CUSTOM" : expectedName!="CUSTOM",
                    "Solo/stacked preset labels were not restored correctly");
-            const int expectedMode=scene.id.endsWith("-edit-flanger")?1:desired;
+            const int expectedMode=
+                (scene.id.endsWith("-edit-flanger")||
+                 scene.id.endsWith("-edit-next"))?1:desired;
             const juce::Colour tint=expectedMode==0?juce::Colour::fromRGB(75,230,172):
                  expectedMode==1?juce::Colour::fromRGB(60,203,245):
                  expectedMode==6?juce::Colour::fromRGB(154,244,77):
@@ -455,6 +487,7 @@ int main(int argc,char** argv){
             {"Skell-Flang-540-chorus-solo","Skell-Flang-540-chorus-stacked"},
             {"Skell-Flang-540-chorus-stacked","Skell-Flang-540-chorus-all-five"},
             {"Skell-Flang-720-chorus-stacked","Skell-Flang-720-chorus-edit-flanger"},
+            {"Skell-Flang-720-chorus-stacked","Skell-Flang-720-chorus-edit-next"},
             {"Skell-Flang-720-chorus-solo","Skell-Flang-720-chorus-sync"},
             {"Skell-Flang-540-flanger-solo","Skell-Flang-540-flangus-solo"},
             {"Skell-Flang-540-orbit-solo","Skell-Flang-540-dimension-solo"},
@@ -481,7 +514,7 @@ int main(int argc,char** argv){
         for(const auto& error:report.errors)
             std::cerr<<"Visual regression: "<<error.toStdString()<<"\n";
         verify(report.passed(),"Shared SkellCore visual regression failed");
-        verify(report.captured==(full?73:4),"Wrong screenshot count for selected mode");
+        verify(report.captured==(full?74:4),"Wrong screenshot count for selected mode");
         if(!full) {
             const std::array<const char*,4> names{{
                 "Skell-Flang-720-chorus-solo",
