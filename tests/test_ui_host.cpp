@@ -293,6 +293,10 @@ int main(int argc,char** argv){
             {"Skell-Flang-720-chorus-edit-flanger",720,500,0,0,true});
         options.scenes.push_back(
             {"Skell-Flang-720-chorus-edit-next",720,500,0,0,true});
+        // Longest active CHARACTER title: ensure the arrow follows the text
+        // instead of floating at the same fixed coordinate in every mode.
+        options.scenes.push_back(
+            {"Skell-Flang-720-dimension-focus",720,500,0,7,true});
         // Visual coverage for all four contextual macros in every effect.
         // These screenshots capture a real renderer image, not a mockup.
         for(size_t mode=0;mode<choices.size();++mode)
@@ -412,6 +416,25 @@ int main(int argc,char** argv){
                 ++count;
             }
             if(count<23)errors.add("Too few visible controls");
+            if(editNext->isVisible()) {
+                const float scale=editor->getWidth()/720.f;
+                const int focused=int(processor.parameters
+                    .getRawParameterValue("mode")->load(std::memory_order_relaxed));
+                const char* allModes[]{"CHORUS","FLANGER","VOWEL (LEGACY)",
+                    "REVERSE (LEGACY)","ORBIT","TUNED (LEGACY)",
+                    "FLANGUS","DIMENSION"};
+                const float labelWidth=juce::Font(10.f,juce::Font::bold)
+                    .getStringWidthFloat("CHARACTER / "+
+                        juce::String(allModes[juce::jlimit(0,7,focused)]));
+                const float gap=editNext->getX()/scale-(383.f+labelWidth);
+                if(gap<4.f||gap>14.f)
+                    errors.add("Edit arrow detached from the CHARACTER title");
+                const auto* first=byID(*editor,"macro-0");
+                if(first&&editNext->getBottom()>first->getY())
+                    errors.add("Edit arrow overlaps character macro controls");
+                if(editNext->getRight()>juce::roundToInt(610.f*scale))
+                    errors.add("Edit arrow overlaps the contextual tone knob");
+            }
             if(currentScene.endsWith("-bone")) {
                 const auto image=editor->createComponentSnapshot(
                     editor->getLocalBounds(),true);
@@ -488,6 +511,7 @@ int main(int argc,char** argv){
             {"Skell-Flang-540-chorus-stacked","Skell-Flang-540-chorus-all-five"},
             {"Skell-Flang-720-chorus-stacked","Skell-Flang-720-chorus-edit-flanger"},
             {"Skell-Flang-720-chorus-stacked","Skell-Flang-720-chorus-edit-next"},
+            {"Skell-Flang-720-dimension-solo","Skell-Flang-720-dimension-focus"},
             {"Skell-Flang-720-chorus-solo","Skell-Flang-720-chorus-sync"},
             {"Skell-Flang-540-flanger-solo","Skell-Flang-540-flangus-solo"},
             {"Skell-Flang-540-orbit-solo","Skell-Flang-540-dimension-solo"},
@@ -514,7 +538,7 @@ int main(int argc,char** argv){
         for(const auto& error:report.errors)
             std::cerr<<"Visual regression: "<<error.toStdString()<<"\n";
         verify(report.passed(),"Shared SkellCore visual regression failed");
-        verify(report.captured==(full?74:4),"Wrong screenshot count for selected mode");
+        verify(report.captured==(full?75:4),"Wrong screenshot count for selected mode");
         if(!full) {
             const std::array<const char*,4> names{{
                 "Skell-Flang-720-chorus-solo",

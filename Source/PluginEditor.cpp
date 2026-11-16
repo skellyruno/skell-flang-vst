@@ -9,6 +9,20 @@ const juce::Colour muted=juce::Colour::fromRGB(143,169,164);
 const char* modes[]{"CHORUS","FLANGER","VOWEL (LEGACY)","REVERSE (LEGACY)",
                      "ORBIT","TUNED (LEGACY)","FLANGUS","DIMENSION"};
 constexpr std::array<int,5> visibleModes{0,1,6,4,7};
+constexpr float characterTitleX=383.f;
+juce::String characterTitle(const int mode) {
+    return "CHARACTER / "+juce::String(modes[std::clamp(mode,0,7)]);
+}
+float characterTitleWidth(const int mode) {
+    // Match the exact font used by paint(), even at fractional UI scales.
+    return juce::Font(10.f,juce::Font::bold)
+        .getStringWidthFloat(characterTitle(mode));
+}
+float editChevronX(const int mode) {
+    // Before: permanently x=566, leaving ~60px after shorter effect labels.
+    return juce::jlimit(483.f,562.f,
+                        characterTitleX+characterTitleWidth(mode)+8.f);
+}
 const char* lanes[]{"DEPTH","SPEED","DELAY","SPREAD","CROSS","DRY","WET"};
 const char* knobNames[][4]{
     {"DETUNE","WIDTH","WARMTH","ENSEMBLE"},
@@ -1057,9 +1071,17 @@ void SkellFlangAudioProcessorEditor::resized() {
     }
     place(shape,553,288,143,25);
     place(sync,610,13,32,32);
-    // In the free strip between CHARACTER caption and the right macro dial.
-    // No overlap with the four existing parameter selectors at minimum size.
-    place(editNext,566,351,28,22);
+    // Keep the action inline with the focused layer title at every UI scale.
+    updateEditChevronBounds();
+}
+void SkellFlangAudioProcessorEditor::updateEditChevronBounds() {
+    const auto* focused=processor.parameters.getRawParameterValue("mode");
+    const int mode=std::clamp(focused?int(focused->load(std::memory_order_relaxed)):0,0,7);
+    const float scale=getWidth()/float(baseW);
+    editNext.setBounds(juce::roundToInt(editChevronX(mode)*scale),
+                       juce::roundToInt(352.f*scale),
+                       juce::roundToInt(29.f*scale),
+                       juce::roundToInt(21.f*scale));
 }
 void SkellFlangAudioProcessorEditor::markPresetCustom() {
     // Keep the sound library honest when a user edits a factory patch.
@@ -1095,6 +1117,7 @@ void SkellFlangAudioProcessorEditor::updateMode() {
     const bool canAdvance=!legacy&&activeCount>1;
     if(editNext.isVisible()!=canAdvance)
         editNext.setVisible(canAdvance);
+    if(modeChanged)updateEditChevronBounds();
     if(!modeChanged&&!layersChanged&&theme==shownTheme)return;
     shownLayers=layers;
     shownMode=selected;
@@ -1337,8 +1360,11 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.setColour(skin.secondary);
     g.setFont(juce::Font(10.f,juce::Font::bold));
     // Leave an actual 6px visual gap before the edit-next chevron.
-    g.drawFittedText("CHARACTER / "+juce::String(modes[std::clamp(shownMode,0,7)]),
-                     383,357,174,15,juce::Justification::centredLeft,1);
+    const int drawnMode=std::clamp(shownMode,0,7);
+    const auto focusedTitle=characterTitle(drawnMode);
+    const int titleBounds=juce::roundToInt(characterTitleWidth(drawnMode))+3;
+    g.drawFittedText(focusedTitle,383,357,titleBounds,15,
+                     juce::Justification::centredLeft,1);
     g.setColour(skin.accent.withAlpha(.78f));
     g.fillRoundedRectangle(383.f,373.f,32.f,1.2f,.6f);
     g.setColour(skin.outline);

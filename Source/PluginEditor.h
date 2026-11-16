@@ -46,6 +46,7 @@ private:
     void timerCallback() override;
     void updateMode();
     void updateMacroSelection();
+    void updateEditChevronBounds();
     void markPresetCustom();
 
     SkellFlangAudioProcessor& processor;
