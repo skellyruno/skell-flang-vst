@@ -102,6 +102,24 @@ int main(int argc,char** argv){
         auto* orbit=findButton(*editor,"ORBIT");
         auto* dimension=findButton(*editor,"DIMENSION");
         click(flanger,"Could not enable a second layer");
+        verify(flanger->getTooltip().containsIgnoreCase("Shift-click"),
+               "Active effect tooltip must explain non-destructive edit focus");
+        // Selecting another active effect for editing must NOT toggle it off.
+        // Simulate the Shift modifier used by JUCE's real mouse events.
+        const auto savedModifiers=juce::ModifierKeys::currentModifiers;
+        juce::ModifierKeys::currentModifiers=
+            juce::ModifierKeys(juce::ModifierKeys::shiftModifier);
+        click(chorus,"Shift-click could not focus enabled Chorus");
+        verify(int(processor.parameters.getRawParameterValue("mode")->load())==0 &&
+               processor.parameters.getRawParameterValue("layerFlanger")->load()>.5f &&
+               processor.parameters.getRawParameterValue("layerChorus")->load()>.5f,
+               "Shift focus muted an active layer or did not select edit mode");
+        click(flanger,"Shift-click could not focus enabled Flanger");
+        juce::ModifierKeys::currentModifiers=savedModifiers;
+        verify(int(processor.parameters.getRawParameterValue("mode")->load())==1 &&
+               processor.parameters.getRawParameterValue("layerChorus")->load()>.5f &&
+               processor.parameters.getRawParameterValue("layerFlanger")->load()>.5f,
+               "Shift focus did not preserve both running effects");
         verify(processor.parameters.getRawParameterValue("layerFlanger")->load()>.5f &&
                processor.parameters.getRawParameterValue("layerChorus")->load()>.5f,
                "Enabling Flanger must not remove Chorus");
@@ -118,6 +136,37 @@ int main(int argc,char** argv){
         click(chorus,"Last active layer must be protected");
         verify(processor.parameters.getRawParameterValue("layerChorus")->load()>.5f,
                "All-off click is not guarded");
+        processor.applyFactoryPreset(0);
+        // The host-only fixture applies a preset without running a GUI event
+        // loop. Trigger the same refresh normally delivered by timerCallback.
+        click(skull,"Could not refresh the factory preset display");
+        // Host/factory attachment changes do not silently rename the patch.
+        verify(preset->getButtonText()=="INIT",
+               "Loading factory patch wrongly marked it CUSTOM");
+        // A user gesture changing a control must mark the preset as edited.
+        auto* depth=dynamic_cast<juce::Slider*>(
+            editor->findChildWithID("fader-depth"));
+        verify(depth && bool(depth->onDragStart) && bool(depth->onDragEnd),
+               "Depth fader is missing its user-edit callbacks");
+        depth->onDragStart();
+        depth->setValue(depth->getValue()+.09,juce::sendNotificationSync);
+        depth->onDragEnd();
+        verify(preset->getButtonText()=="CUSTOM" &&
+               processor.parameters.state.getProperty("presetName")=="CUSTOM",
+               "Dragging a fader failed to identify a modified factory preset");
+        processor.applyFactoryPreset(0);
+        verify(processor.parameters.state.getProperty("presetName")=="INIT",
+               "Reloading factory preset did not restore its name");
+        auto* tone=dynamic_cast<juce::Slider*>(
+            editor->findChildWithID("tone-1"));
+        verify(tone && bool(tone->onDragStart)&&bool(tone->onDragEnd),
+               "Tone knob is missing its user-edit callbacks");
+        tone->onDragStart();
+        tone->setValue(tone->getValue()>.4? .22 : .81,
+                       juce::sendNotificationSync);
+        tone->onDragEnd();
+        verify(processor.parameters.state.getProperty("presetName")=="CUSTOM",
+               "Dragging a knob failed to update preset status");
         processor.applyFactoryPreset(0);
         auto* look=dynamic_cast<FlangLookAndFeel*>(&editor->getLookAndFeel());
         verify(look!=nullptr,"Skell-Flang is not using the custom look-and-feel");
@@ -219,6 +268,9 @@ int main(int argc,char** argv){
             {"Skell-Flang-540-chorus-all-five",540,375,0,0,true});
         options.scenes.push_back(
             {"Skell-Flang-720-chorus-sync",720,500,0,0,false});
+        // Non-destructive editing focus on Flanger, while Chorus remains active.
+        options.scenes.push_back(
+            {"Skell-Flang-720-chorus-edit-flanger",720,500,0,0,true});
         // Visual coverage for all four contextual macros in every effect.
         // These screenshots capture a real renderer image, not a mockup.
         for(size_t mode=0;mode<choices.size();++mode)
@@ -264,6 +316,19 @@ int main(int argc,char** argv){
                 if(auto* p=processor.parameters.getParameter("mode"))
                     p->setValueNotifyingHost(p->convertTo0to1(float(desired)));
             }
+            if(scene.id.endsWith("-edit-flanger")) {
+                // The extra Flanger is already enabled; focus it with Shift,
+                // not an off/on layer toggle which would interrupt its DSP.
+                const auto oldModifiers=juce::ModifierKeys::currentModifiers;
+                juce::ModifierKeys::currentModifiers=
+                    juce::ModifierKeys(juce::ModifierKeys::shiftModifier);
+                click(findButton(*editor,"FLANGER"),
+                      "Cannot shift-focus an enabled effect in real render");
+                juce::ModifierKeys::currentModifiers=oldModifiers;
+                verify(processor.parameters.getRawParameterValue("layerChorus")->load()>.5f &&
+                       processor.parameters.getRawParameterValue("layerFlanger")->load()>.5f,
+                       "Edit focus muted the layered audio during screenshot");
+            }
             if(scene.id.endsWith("-sync"))
                 if(auto* p=processor.parameters.getParameter("lfoSync"))
                     p->setValueNotifyingHost(p->convertTo0to1(1.f));
@@ -282,13 +347,14 @@ int main(int argc,char** argv){
                    "Preset bar shows a stale factory/custom name");
             verify(scene.browser ? expectedName=="CUSTOM" : expectedName!="CUSTOM",
                    "Solo/stacked preset labels were not restored correctly");
-            const juce::Colour tint=desired==0?juce::Colour::fromRGB(75,230,172):
-                 desired==1?juce::Colour::fromRGB(60,203,245):
-                 desired==6?juce::Colour::fromRGB(154,244,77):
-                 desired==4?juce::Colour::fromRGB(138,160,255):
+            const int expectedMode=scene.id.endsWith("-edit-flanger")?1:desired;
+            const juce::Colour tint=expectedMode==0?juce::Colour::fromRGB(75,230,172):
+                 expectedMode==1?juce::Colour::fromRGB(60,203,245):
+                 expectedMode==6?juce::Colour::fromRGB(154,244,77):
+                 expectedMode==4?juce::Colour::fromRGB(138,160,255):
                               juce::Colour::fromRGB(246,202,131);
             verify(look->accent==tint,"Wrong focused effect accent");
-            verify(int(processor.parameters.getRawParameterValue("mode")->load())==desired,
+            verify(int(processor.parameters.getRawParameterValue("mode")->load())==expectedMode,
                    "Wrong focused mode in screenshot");
             int selectedMacro=0;
             if(scene.id.contains("-macro"))
@@ -388,6 +454,7 @@ int main(int argc,char** argv){
         options.mustDiffer={
             {"Skell-Flang-540-chorus-solo","Skell-Flang-540-chorus-stacked"},
             {"Skell-Flang-540-chorus-stacked","Skell-Flang-540-chorus-all-five"},
+            {"Skell-Flang-720-chorus-stacked","Skell-Flang-720-chorus-edit-flanger"},
             {"Skell-Flang-720-chorus-solo","Skell-Flang-720-chorus-sync"},
             {"Skell-Flang-540-flanger-solo","Skell-Flang-540-flangus-solo"},
             {"Skell-Flang-540-orbit-solo","Skell-Flang-540-dimension-solo"},
@@ -414,7 +481,7 @@ int main(int argc,char** argv){
         for(const auto& error:report.errors)
             std::cerr<<"Visual regression: "<<error.toStdString()<<"\n";
         verify(report.passed(),"Shared SkellCore visual regression failed");
-        verify(report.captured==(full?72:4),"Wrong screenshot count for selected mode");
+        verify(report.captured==(full?73:4),"Wrong screenshot count for selected mode");
         if(!full) {
             const std::array<const char*,4> names{{
                 "Skell-Flang-720-chorus-solo",

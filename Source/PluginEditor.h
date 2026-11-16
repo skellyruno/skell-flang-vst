@@ -46,15 +46,19 @@ private:
     void timerCallback() override;
     void updateMode();
     void updateMacroSelection();
+    void markPresetCustom();
 
     SkellFlangAudioProcessor& processor;
     FlangLookAndFeel skin;
     std::array<juce::Slider,7> faders;
+    std::array<double,7> faderDragStart{{}};
     std::array<juce::Label,7> faderLabels;
     std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>,7> faderLinks;
     juce::Slider order;
+    double orderDragStart=0.0;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> orderLink;
     std::array<juce::Slider,7> knobs;
+    std::array<double,7> knobDragStart{{}};
     std::array<juce::Label,7> knobLabels;
     // Keep four real APVTS attachments, but only show one macro dial at a time.
     std::array<juce::TextButton,4> macroTabs;
