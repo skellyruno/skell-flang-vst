@@ -17,6 +17,13 @@ jobs:
         run: cmake -S . -B build -A x64 -DSKELLFLANG_BUILD_UI_SMOKE=ON
       - name: Build
         run: cmake --build build --config Release --parallel 2
+      - name: Verify JUCE processBlock allocation-free callback
+        shell: pwsh
+        run: |
+          $test = Get-ChildItem build -Recurse -File -Filter 'SkellFlangProcessBlockAlloc.exe' | Select-Object -First 1
+          if (-not $test) { throw 'ProcessBlock allocation gate executable was not built' }
+          & $test.FullName
+          if ($LASTEXITCODE -ne 0) { throw "ProcessBlock allocation gate failed (exit $LASTEXITCODE)" }
       - name: Validate manifest and package
         shell: pwsh
         run: |
