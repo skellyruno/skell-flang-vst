@@ -69,7 +69,7 @@ jobs:
       - name: Add private-preview provenance and SHA-256 manifest
         shell: pwsh
         env:
-          PR_HEAD_SHA: \${{ github.event.pull_request.head.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           $ErrorActionPreference = 'Stop'
           $distRoot = (Resolve-Path -LiteralPath dist).Path
