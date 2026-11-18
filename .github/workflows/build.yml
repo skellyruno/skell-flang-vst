@@ -7,7 +7,7 @@ on:
 # A newer commit supersedes earlier heavy MSVC builds while iterating.
 concurrency:
   group: skell-flang-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   windows-vst3:
     runs-on: windows-latest
@@ -153,30 +153,9 @@ jobs:
           $sumLines | Set-Content -LiteralPath $sumPath -Encoding ascii
           foreach ($line in Get-Content -LiteralPath $sumPath) {
             $parts = $line -split '  ', 2
-            if ($parts.Count -ne 2 -or $parts[0] -notmatch '^[0-9a-f]{64}
-  portable-dsp:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - name: Configure DSP tests
-        run: cmake -S tests -B build-dsp -DCMAKE_BUILD_TYPE=Release
-      - name: Build DSP tests
-        run: cmake --build build-dsp --parallel 2
-      - name: Run DSP tests
-        run: ctest --test-dir build-dsp --output-on-failure
-      - name: Measure 8-voice and morph CPU on runner
-        run: ./build-dsp/flang-dsp-bench
-  portable-dsp-sanitized:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - name: Configure address and undefined behavior sanitizers
-        run: cmake -S tests -B build-san -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
-      - name: Build sanitized tests
-        run: cmake --build build-san --parallel 2
-      - name: Run sanitized tests
-        run: ctest --test-dir build-san --output-on-failure
-) { throw ('Invalid SHA256SUMS line: {0}' -f $line) }
+            if ($parts.Count -ne 2 -or $parts[0] -notmatch '^[0-9a-f]{64}$') {
+              throw ('Invalid SHA256SUMS line: {0}' -f $line)
+            }
             $relativePath = $parts[1].Replace('/', [System.IO.Path]::DirectorySeparatorChar)
             $filePath = Join-Path $distRoot $relativePath
             if (-not (Test-Path -LiteralPath $filePath -PathType Leaf)) { throw ('Checksum target is missing: {0}' -f $relativePath) }
