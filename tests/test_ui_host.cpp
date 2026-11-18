@@ -6,6 +6,7 @@
 #include <cmath>
 #include <iostream>
 #include <memory>
+#include <set>
 #include <stdexcept>
 
 namespace {
@@ -552,16 +553,27 @@ int main(int argc,char** argv){
                 "Skell-Flang-720-chorus-stacked",
                 "Skell-Flang-720-chorus-graphite"}};
             constexpr int w=600,h=420;
-            juce::Image sheet(juce::Image::RGB,2*w,2*h,true);
-            juce::Graphics g(sheet);
-            g.fillAll(juce::Colour(0xff070b0f));
-            for(size_t i=0;i<names.size();++i) {
-                const auto image=juce::ImageFileFormat::loadFrom(
-                    output.getChildFile(juce::String(names[i])+".png"));
-                verify(image.isValid(),"Missing real Flang scene for Quick4 sheet");
-                g.drawImageWithin(image,int(i%2)*w+7,int(i/2)*h+7,
-                                  w-14,h-14,juce::RectanglePlacement::centred);
+            juce::Image sheet(juce::Image::ARGB,2*w,2*h,true);
+            {
+                // Finish the image-backed Graphics context before inspecting
+                // or serializing the contact sheet. The old live context
+                // allowed the PNG writer to observe an all-black image.
+                juce::Graphics g(sheet);
+                g.fillAll(juce::Colour(0xff070b0f));
+                for(size_t i=0;i<names.size();++i) {
+                    const auto image=juce::ImageFileFormat::loadFrom(
+                        output.getChildFile(juce::String(names[i])+".png"));
+                    verify(image.isValid(),"Missing real Flang scene for Quick4 sheet");
+                    g.drawImageWithin(image,int(i%2)*w+7,int(i/2)*h+7,
+                                      w-14,h-14,juce::RectanglePlacement::centred);
+                }
             }
+            std::set<juce::uint32> sheetColours;
+            for(int y=8;y<2*h;y+=13)
+                for(int x=8;x<2*w;x+=17)
+                    sheetColours.insert(sheet.getPixelAt(x,y).getARGB());
+            verify(sheetColours.size()>12,
+                   "Flang Quick4 contact sheet is unexpectedly blank/flat");
             verify(skellcore::ui::headless::writePng(
                        sheet,output.getChildFile("contact-sheet.png")),
                    "Could not save Flang Quick4 overview");
