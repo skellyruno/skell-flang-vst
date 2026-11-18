@@ -48,6 +48,8 @@ if(SKELLFLANG_BUILD_UI_SMOKE)
   target_sources(SkellFlangProcessBlockAlloc PRIVATE tests/test_process_block_alloc.cpp)
   target_compile_features(SkellFlangProcessBlockAlloc PRIVATE cxx_std_17)
   target_compile_definitions(SkellFlangProcessBlockAlloc PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
-  target_link_libraries(SkellFlangProcessBlockAlloc PRIVATE SkellFlang juce::juce_audio_utils juce::juce_gui_extra)
+  # PluginProcessor.h includes SkellCore/WorldLink.h. SkellFlang's SkellCore
+  # dependencies are PRIVATE, so the standalone test target must inherit the
+  # shared include directory itself when it instantiates the real processor.
+  target_link_libraries(SkellFlangProcessBlockAlloc PRIVATE SkellFlang SkellCore::UI juce::juce_audio_utils juce::juce_gui_extra)
 endif()
-
