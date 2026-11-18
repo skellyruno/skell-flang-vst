@@ -66,11 +66,133 @@ jobs:
           strictness-level: 5
           args: --timeout-ms 90000
           pluginval-version: v2.0.0-beta3
+      - name: Add private-preview provenance and SHA-256 manifest
+        shell: pwsh
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $distRoot = (Resolve-Path -LiteralPath dist).Path
+          $bundles = @(Get-ChildItem -LiteralPath $distRoot -Directory -Filter '*.vst3')
+          if ($bundles.Count -ne 1) { throw ('Expected exactly one VST3 bundle, found {0}' -f $bundles.Count) }
+          $bundle = $bundles[0]
+          $binaryRelative = 'Contents/x86_64-win/Skell-Flang.vst3'
+          $moduleInfoRelative = 'Contents/Resources/moduleinfo.json'
+          $binary = Join-Path $bundle.FullName $binaryRelative
+          $moduleInfo = Join-Path $bundle.FullName $moduleInfoRelative
+          if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw 'Expected x86_64-win VST3 module is missing' }
+          if (-not (Test-Path -LiteralPath $moduleInfo -PathType Leaf)) { throw 'VST3 moduleinfo.json is missing' }
+          $metadata = Get-Content -LiteralPath $moduleInfo -Raw | ConvertFrom-Json -ErrorAction Stop
+          if ($metadata.Name -ne 'Skell-Flang' -or [string]::IsNullOrWhiteSpace([string]$metadata.Version)) { throw 'Unexpected product identity or missing version' }
+          $factoryInfo = $metadata.'Factory Info'
+          if ($factoryInfo.Vendor -ne 'Skell Audio') { throw 'Unexpected VST3 vendor identity' }
+          $classes = @($metadata.Classes)
+          if ($classes.Count -ne 2) { throw ('Expected two VST3 classes, found {0}' -f $classes.Count) }
+          $cids = @($classes | ForEach-Object { [string]$_.CID })
+          $uniqueCids = @($cids | Sort-Object -Unique)
+          if ($uniqueCids.Count -ne 2) { throw 'Duplicate VST3 class IDs detected' }
+          $moduleFiles = @(Get-ChildItem -LiteralPath $bundle.FullName -Recurse -File -Filter 'Skell-Flang.vst3')
+          if ($moduleFiles.Count -ne 1) { throw ('Expected one VST3 module file, found {0}' -f $moduleFiles.Count) }
+          $bytes = [System.IO.File]::ReadAllBytes($binary)
+          if ($bytes.Length -lt 256 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { throw 'VST3 module is not a valid PE image' }
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
+          if ($peOffset -lt 0 -or $peOffset + 26 -gt $bytes.Length) { throw 'Invalid PE header offset' }
+          if ($bytes[$peOffset] -ne 0x50 -or $bytes[$peOffset + 1] -ne 0x45 -or $bytes[$peOffset + 2] -ne 0 -or $bytes[$peOffset + 3] -ne 0) { throw 'PE signature is missing' }
+          $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+          $optionalMagic = [BitConverter]::ToUInt16($bytes, $peOffset + 24)
+          if ($machine -ne 0x8664 -or $optionalMagic -ne 0x20B) { throw 'VST3 module is not AMD64 PE32+' }
+          $binaryHash = (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
+          $moduleInfoHash = (Get-FileHash -LiteralPath $moduleInfo -Algorithm SHA256).Hash.ToLowerInvariant()
+          $sourceHead = $env:PR_HEAD_SHA
+          if ([string]::IsNullOrWhiteSpace($sourceHead)) { $sourceHead = $env:GITHUB_SHA }
+          $sourceBranch = $env:GITHUB_HEAD_REF
+          if ([string]::IsNullOrWhiteSpace($sourceBranch)) { $sourceBranch = $env:GITHUB_REF_NAME }
+          $buildInfo = [ordered]@{
+            schemaVersion = 1
+            product = $metadata.Name
+            version = [string]$metadata.Version
+            vendor = [string]$factoryInfo.Vendor
+            format = 'VST3'
+            platform = 'Windows x64'
+            architecture = 'AMD64 PE32+'
+            bundle = $bundle.Name
+            sourceHeadCommit = $sourceHead
+            workflowCommit = $env:GITHUB_SHA
+            sourceBranch = $sourceBranch
+            workflowRunId = $env:GITHUB_RUN_ID
+            workflowRunAttempt = $env:GITHUB_RUN_ATTEMPT
+            workflowRunUrl = ('https://github.com/{0}/actions/runs/{1}' -f $env:GITHUB_REPOSITORY, $env:GITHUB_RUN_ID)
+            pluginvalVersion = 'v2.0.0-beta3'
+            pluginvalStrictness = 5
+            pluginvalStatus = 'passed'
+            previewOnly = $true
+            physicalFLStudioAcceptance = 'unverified'
+            musicalAudioABAcceptance = 'unverified'
+            targetHardwareCPUAcceptance = 'unverified'
+            binaryRelativePath = ($bundle.Name + '/' + $binaryRelative)
+            binarySha256 = $binaryHash
+            moduleInfoRelativePath = ($bundle.Name + '/' + $moduleInfoRelative)
+            moduleInfoSha256 = $moduleInfoHash
+          }
+          $buildInfo | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $distRoot 'build-info.json') -Encoding utf8
+          @(
+            'PRIVATE PREVIEW ONLY — NOT FOR COMMERCIAL DISTRIBUTION'
+            'This package is a Windows x64 VST3 engineering preview for owner testing.'
+            'It is not a signed commercial installer and does not include an updater.'
+            'Physical FL Studio scan/load, project save/reopen, musical audio A/B and target-hardware CPU/latency acceptance remain unverified.'
+            'Do not redistribute commercially. Keep the source commit and workflow run recorded in build-info.json.'
+          ) | Set-Content -LiteralPath (Join-Path $distRoot 'PREVIEW_ONLY.txt') -Encoding utf8
+          $sumPath = Join-Path $distRoot 'SHA256SUMS.txt'
+          $sumLines = @()
+          $packageFiles = @(Get-ChildItem -LiteralPath $distRoot -Recurse -File | Where-Object { $_.FullName -ne $sumPath } | Sort-Object FullName)
+          foreach ($file in $packageFiles) {
+            $relative = $file.FullName.Substring($distRoot.Length + 1).Replace('\', '/')
+            $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            $sumLines += ($hash + '  ' + $relative)
+          }
+          $sumLines | Set-Content -LiteralPath $sumPath -Encoding ascii
+          foreach ($line in Get-Content -LiteralPath $sumPath) {
+            $parts = $line -split '  ', 2
+            if ($parts.Count -ne 2 -or $parts[0] -notmatch '^[0-9a-f]{64}
+  portable-dsp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Configure DSP tests
+        run: cmake -S tests -B build-dsp -DCMAKE_BUILD_TYPE=Release
+      - name: Build DSP tests
+        run: cmake --build build-dsp --parallel 2
+      - name: Run DSP tests
+        run: ctest --test-dir build-dsp --output-on-failure
+      - name: Measure 8-voice and morph CPU on runner
+        run: ./build-dsp/flang-dsp-bench
+  portable-dsp-sanitized:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Configure address and undefined behavior sanitizers
+        run: cmake -S tests -B build-san -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+      - name: Build sanitized tests
+        run: cmake --build build-san --parallel 2
+      - name: Run sanitized tests
+        run: ctest --test-dir build-san --output-on-failure
+) { throw ('Invalid SHA256SUMS line: {0}' -f $line) }
+            $relativePath = $parts[1].Replace('/', [System.IO.Path]::DirectorySeparatorChar)
+            $filePath = Join-Path $distRoot $relativePath
+            if (-not (Test-Path -LiteralPath $filePath -PathType Leaf)) { throw ('Checksum target is missing: {0}' -f $relativePath) }
+            $actualHash = (Get-FileHash -LiteralPath $filePath -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualHash -ne $parts[0]) { throw ('Checksum mismatch: {0}' -f $relativePath) }
+          }
+          $standaloneFiles = @(Get-ChildItem -LiteralPath $distRoot -Recurse -File -Filter '*.exe')
+          $nestedArchives = @(Get-ChildItem -LiteralPath $distRoot -Recurse -File -Filter '*.zip')
+          if ($standaloneFiles.Count -ne 0 -or $nestedArchives.Count -ne 0) { throw 'Unexpected standalone executable or nested archive in VST3 preview package' }
+          Write-Host ('PASS: one AMD64 PE32+ VST3 bundle; provenance and preview notice written; {0} package files checksum-verified.' -f $sumLines.Count)
       - uses: actions/upload-artifact@v6
         with:
           name: Skell-Flang-Windows-VST3-Only
           path: dist/
           if-no-files-found: error
+          retention-days: 30
   portable-dsp:
     runs-on: ubuntu-latest
     steps:
