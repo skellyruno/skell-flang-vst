@@ -74,7 +74,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $distRoot = (Resolve-Path -LiteralPath dist).Path
           $bundles = @(Get-ChildItem -LiteralPath $distRoot -Directory -Filter '*.vst3')
-          if ($bundles.Count -ne 1) { throw "Expected exactly one VST3 bundle, found $($bundles.Count)" }
+          if ($bundles.Count -ne 1) { throw ('Expected exactly one VST3 bundle, found {0}' -f $bundles.Count) }
           $bundle = $bundles[0]
           $binaryRelative = 'Contents/x86_64-win/Skell-Flang.vst3'
           $moduleInfoRelative = 'Contents/Resources/moduleinfo.json'
@@ -87,11 +87,12 @@ jobs:
           $factoryInfo = $metadata.'Factory Info'
           if ($factoryInfo.Vendor -ne 'Skell Audio') { throw 'Unexpected VST3 vendor identity' }
           $classes = @($metadata.Classes)
-          if ($classes.Count -ne 2) { throw "Expected two VST3 classes, found $($classes.Count)" }
+          if ($classes.Count -ne 2) { throw ('Expected two VST3 classes, found {0}' -f $classes.Count) }
           $cids = @($classes | ForEach-Object { [string]$_.CID })
-          if (@($cids | Sort-Object -Unique).Count -ne 2) { throw 'Duplicate VST3 class IDs detected' }
+          $uniqueCids = @($cids | Sort-Object -Unique)
+          if ($uniqueCids.Count -ne 2) { throw 'Duplicate VST3 class IDs detected' }
           $moduleFiles = @(Get-ChildItem -LiteralPath $bundle.FullName -Recurse -File -Filter 'Skell-Flang.vst3')
-          if ($moduleFiles.Count -ne 1) { throw "Expected one VST3 module file, found $($moduleFiles.Count)" }
+          if ($moduleFiles.Count -ne 1) { throw ('Expected one VST3 module file, found {0}' -f $moduleFiles.Count) }
           $bytes = [System.IO.File]::ReadAllBytes($binary)
           if ($bytes.Length -lt 256 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { throw 'VST3 module is not a valid PE image' }
           $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
@@ -120,7 +121,7 @@ jobs:
             sourceBranch = $sourceBranch
             workflowRunId = $env:GITHUB_RUN_ID
             workflowRunAttempt = $env:GITHUB_RUN_ATTEMPT
-            workflowRunUrl = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            workflowRunUrl = ('https://github.com/{0}/actions/runs/{1}' -f $env:GITHUB_REPOSITORY, $env:GITHUB_RUN_ID)
             pluginvalVersion = 'v2.0.0-beta3'
             pluginvalStrictness = 5
             pluginvalStatus = 'passed'
@@ -128,9 +129,9 @@ jobs:
             physicalFLStudioAcceptance = 'unverified'
             musicalAudioABAcceptance = 'unverified'
             targetHardwareCPUAcceptance = 'unverified'
-            binaryRelativePath = "$($bundle.Name)/$binaryRelative"
+            binaryRelativePath = ($bundle.Name + '/' + $binaryRelative)
             binarySha256 = $binaryHash
-            moduleInfoRelativePath = "$($bundle.Name)/$moduleInfoRelative"
+            moduleInfoRelativePath = ($bundle.Name + '/' + $moduleInfoRelative)
             moduleInfoSha256 = $moduleInfoHash
           }
           $buildInfo | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $distRoot 'build-info.json') -Encoding utf8
@@ -147,11 +148,12 @@ jobs:
           foreach ($file in $packageFiles) {
             $relative = $file.FullName.Substring($distRoot.Length + 1).Replace('\', '/')
             $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            $sumLines += "$hash  $relative"
+            $sumLines += ($hash + '  ' + $relative)
           }
           $sumLines | Set-Content -LiteralPath $sumPath -Encoding ascii
           foreach ($line in Get-Content -LiteralPath $sumPath) {
-            if ($line -notmatch '^([0-9a-f]{64})  (.+)
+            $parts = $line -split '  ', 2
+            if ($parts.Count -ne 2 -or $parts[0] -notmatch '^[0-9a-f]{64}
   portable-dsp:
     runs-on: ubuntu-latest
     steps:
@@ -174,18 +176,17 @@ jobs:
         run: cmake --build build-san --parallel 2
       - name: Run sanitized tests
         run: ctest --test-dir build-san --output-on-failure
-) { throw "Invalid SHA256SUMS line: $line" }
-            $expectedHash = $Matches[1]
-            $relativePath = $Matches[2].Replace('/', [System.IO.Path]::DirectorySeparatorChar)
+) { throw ('Invalid SHA256SUMS line: {0}' -f $line) }
+            $relativePath = $parts[1].Replace('/', [System.IO.Path]::DirectorySeparatorChar)
             $filePath = Join-Path $distRoot $relativePath
-            if (-not (Test-Path -LiteralPath $filePath -PathType Leaf)) { throw "Checksum target is missing: $relativePath" }
+            if (-not (Test-Path -LiteralPath $filePath -PathType Leaf)) { throw ('Checksum target is missing: {0}' -f $relativePath) }
             $actualHash = (Get-FileHash -LiteralPath $filePath -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ($actualHash -ne $expectedHash) { throw "Checksum mismatch: $relativePath" }
+            if ($actualHash -ne $parts[0]) { throw ('Checksum mismatch: {0}' -f $relativePath) }
           }
           $standaloneFiles = @(Get-ChildItem -LiteralPath $distRoot -Recurse -File -Filter '*.exe')
           $nestedArchives = @(Get-ChildItem -LiteralPath $distRoot -Recurse -File -Filter '*.zip')
           if ($standaloneFiles.Count -ne 0 -or $nestedArchives.Count -ne 0) { throw 'Unexpected standalone executable or nested archive in VST3 preview package' }
-          Write-Host "PASS: one AMD64 PE32+ VST3 bundle; provenance and preview notice written; $($sumLines.Count) package files checksum-verified."
+          Write-Host ('PASS: one AMD64 PE32+ VST3 bundle; provenance and preview notice written; {0} package files checksum-verified.' -f $sumLines.Count)
       - uses: actions/upload-artifact@v6
         with:
           name: Skell-Flang-Windows-VST3-Only
