@@ -12,6 +12,15 @@
 #endif
 
 namespace {
+class TestPlayHead final : public juce::AudioPlayHead {
+public:
+    juce::Optional<juce::AudioPlayHead::PositionInfo> getPosition() const override {
+        juce::AudioPlayHead::PositionInfo position;
+        position.setBpm(120.0);
+        return juce::Optional<juce::AudioPlayHead::PositionInfo>(position);
+    }
+};
+
 thread_local bool trackingAllocations = false;
 thread_local std::size_t trackedNewCalls = 0;
 
@@ -207,7 +216,11 @@ void operator delete[](void* memory, std::size_t, std::align_val_t) noexcept {
 
 int main() {
     try {
+        // Exercise the host-playhead branch used by DAWs while the allocation
+        // probe is active, rather than testing only the no-host fallback.
+        TestPlayHead playHead;
         SkellFlangAudioProcessor processor;
+        processor.setPlayHead(&playHead);
         juce::MidiBuffer midi;
 
         std::array<juce::AudioBuffer<float>, blockSizes.size()> mono;
@@ -293,7 +306,7 @@ int main() {
         }
 
         std::printf("PASS: %llu direct processBlock calls; zero C++ new/new[]/"
-                    "aligned-new allocations; finite mono/stereo output; "
+                    "aligned-new allocations; host BPM playhead path; finite mono/stereo output; "
                     "44.1/48/96/192 kHz; block sizes 0/1/17/64/128/512/1024.\n",
                     static_cast<unsigned long long>(blocks));
         return 0;
