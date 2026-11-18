@@ -39,5 +39,17 @@ if(SKELLFLANG_BUILD_UI_SMOKE)
   target_compile_features(SkellFlangUiSmoke PRIVATE cxx_std_17)
   target_compile_definitions(SkellFlangUiSmoke PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
   target_link_libraries(SkellFlangUiSmoke PRIVATE SkellFlang SkellCore::UIRenderer juce::juce_audio_utils juce::juce_gui_extra)
-endif()
 
+  # Direct processor callback allocation gate. Buffers and MIDI are prepared
+  # before the probe; the test counts C++ new/new[] and aligned-new calls only
+  # while SkellFlangAudioProcessor::processBlock executes.
+  juce_add_console_app(SkellFlangProcessBlockAlloc PRODUCT_NAME "Skell-Flang ProcessBlock Allocation Gate")
+  juce_generate_juce_header(SkellFlangProcessBlockAlloc)
+  target_sources(SkellFlangProcessBlockAlloc PRIVATE tests/test_process_block_alloc.cpp)
+  target_compile_features(SkellFlangProcessBlockAlloc PRIVATE cxx_std_17)
+  target_compile_definitions(SkellFlangProcessBlockAlloc PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+  # PluginProcessor.h includes SkellCore/WorldLink.h. SkellFlang's SkellCore
+  # dependencies are PRIVATE, so the standalone test target must inherit the
+  # shared include directory itself when it instantiates the real processor.
+  target_link_libraries(SkellFlangProcessBlockAlloc PRIVATE SkellFlang SkellCore::UI juce::juce_audio_utils juce::juce_gui_extra)
+endif()
