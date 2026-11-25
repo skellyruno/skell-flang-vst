@@ -4,12 +4,16 @@
 namespace S=skellflang::rawsettings;
 #define CHECK(x) do{if(!(x)){std::fprintf(stderr,"line %d: %s\n",__LINE__,#x);std::abort();}}while(false)
 int main(){
+ CHECK((S::minimum==S::State{{1,0,0,0,0,-128,-128,-128}}));
+ CHECK((S::maximum==S::State{{9,1024,1024,128,128,128,128,128}}));
+ CHECK((S::defaults==S::State{{4,512,768,8,128,-32,96,96}}));
  unsigned count=0;
  for(std::size_t i=0;i<8;++i)for(int v=S::minimum[i];v<=S::maximum[i];++v){
     auto s=S::defaults;s[i]=v;S::State out{};S::Record raw{};S::VersionedRecord versioned{};
     CHECK(S::encode(s,raw));CHECK(S::decode(raw.data(),raw.size(),out)&&out==s);
     CHECK(S::encodeVersioned(s,versioned));CHECK(S::decode(versioned.data(),versioned.size(),out)&&out==s);++count;
  }
+ CHECK(count==3088);
  S::Record raw{};CHECK(S::encode(S::defaults,raw));
  const S::Record expected{{4,0,0,0,0,2,0,0,0,3,0,0,8,0,0,0,128,0,0,0,224,255,255,255,96,0,0,0,96,0,0,0}};
  CHECK(raw==expected);

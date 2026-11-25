@@ -8,10 +8,16 @@ using State = std::array<int, 8>;
 using Record = std::array<std::uint8_t, 32>;
 using VersionedRecord = std::array<std::uint8_t, 40>;
 inline constexpr State minimum{{1,0,0,0,0,-128,-128,-128}};
-inline constexpr State maximum{{9,1024,1024,128,128,128,128}};
+inline constexpr State maximum{{9,1024,1024,128,128,128,128,128}};
 inline constexpr State defaults{{4,512,768,8,128,-32,96,96}};
 inline constexpr std::array<const char*,8> names{{"Order","Depth","Speed","Delay","Spread","Cross","Dry","Wet"}};
 inline constexpr std::array<std::uint8_t,8> header{{'S','F','L','G',1,0,32,0}};
+constexpr bool validContract() noexcept {
+    for(std::size_t i=0;i<defaults.size();++i)
+        if(defaults[i]<minimum[i]||defaults[i]>maximum[i])return false;
+    return true;
+}
+static_assert(validContract(),"Every default must be representable");
 struct Result { const char* error=nullptr; int parameter=-1; explicit operator bool() const noexcept {return error==nullptr;} };
 inline Result validate(const State& s) noexcept {
     for(std::size_t i=0;i<s.size();++i)
