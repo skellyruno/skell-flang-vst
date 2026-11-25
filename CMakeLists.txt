@@ -69,8 +69,8 @@ if(SKELLY_FLANGUS_SAMPLE_CLOCK_RAMP)
   target_compile_definitions(SkellFlang PUBLIC SKELLFLANG_SAMPLE_CLOCK_RAMP=1)
 endif()
 
-# Private source dependency; no substitute Chorus engine.
-set(SKELL_CHORUS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Source/NativeChorus" CACHE PATH "Licensed Classic Chorus source directory")
+# Vendored owner-authorized native Classic Chorus; no external DSP dependency.
+set(SKELL_CHORUS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Source/NativeChorus" CACHE PATH "Vendored Classic Chorus source directory")
 foreach(f ChorusFx.cpp core/ChorusFx.h core/Simd.h)
   if(NOT EXISTS "${SKELL_CHORUS_SOURCE_DIR}/${f}")
     message(FATAL_ERROR "Classic Chorus source required: ${f}")

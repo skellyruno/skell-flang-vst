@@ -114,12 +114,12 @@ int main(int argc,char** argv){
             for(int i=0;i<4096;++i)verify(nativeAudio.getSample(0,i)==-.25f&&nativeAudio.getSample(1,i)==.5f,"Native signed dry or exclusive routing failed");
             // With two dry-only layers, the full rack is the weighted average
             // of native inverted dry and the other layer's positive dry.
-            set("layerChorus",1);set("dry",1);set("wet",0);
+            set("layerFlanger",1);set("dry",1);set("wet",0);
             processor.prepareToPlay(48000.,4096);
             for(int i=0;i<4096;++i){nativeAudio.setSample(0,i,.25f);nativeAudio.setSample(1,i,-.5f);}
             processor.processBlock(nativeAudio,noMidi);
             for(int i=0;i<4096;++i)verify(std::abs(nativeAudio.getSample(0,i))<1.e-6f&&std::abs(nativeAudio.getSample(1,i))<1.e-6f,"Native stack doubled or failed to replace dry signal");
-            set("layerChorus",0);
+            set("layerFlanger",0);
             processor.reset();
             processor.prepareToPlay(22050.,32);
             refresh();

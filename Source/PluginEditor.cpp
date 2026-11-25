@@ -193,8 +193,10 @@ void FlangLookAndFeel::drawLinearSlider(juce::Graphics& g,int x,int y,int w,int 
 
     const float capWidth=juce::jlimit(20.f,43.f,float(w)*.64f);
     const float capHeight=juce::jlimit(23.f,43.f,capWidth*1.18f);
-    const float thumbY=std::clamp(pos,railTop+capHeight*.5f,
-                                      railBottom-capHeight*.5f);
+    // The thumb uses the full calibrated travel, without clipping at either
+    // end. JUCE supplies the actual skewed slider proportion.
+    const float unit=float(std::clamp(control.valueToProportionOfLength(control.getValue()),0.0,1.0));
+    const float thumbY=juce::jmap(1.f-unit,railTop+capHeight*.5f,railBottom-capHeight*.5f);
     // The position cue runs beneath the shuttle, just like the reference.
     g.setColour(railAccent.withAlpha(daylight?.94f:.96f));
     g.drawLine(cx,thumbY+capHeight*.48f,cx,railBottom,1.55f);
@@ -254,14 +256,15 @@ void FlangLookAndFeel::drawLinearSlider(juce::Graphics& g,int x,int y,int w,int 
     // Keep the host parameter's numeric feedback, tucked into the channel
     // header without changing the reference's silhouette.
     const bool orderFader=control.getComponentID()=="fader-order";
-    const auto readout=(orderFader||bool(control.getProperties().getWithDefault("rawFlangus",false)))
+    const auto rawReadout=(orderFader||bool(control.getProperties().getWithDefault("rawFlangus",false)))
         ? juce::String(juce::roundToInt(control.getValue()))
         : juce::String(juce::roundToInt(control.getValue()*100.))+"%";
     g.setColour((daylight?juce::Colour::fromRGB(63,76,75)
                           :juce::Colour::fromRGB(165,187,179)).withAlpha(.82f));
     g.setFont(juce::Font(juce::jlimit(8.f,10.3f,float(w)*.215f),
                          juce::Font::bold));
-    g.drawText(readout,x+1,y+2,w-2,12,juce::Justification::centred);
+    const auto readout=control.getProperties().getWithDefault("displayValue",rawReadout).toString();
+    g.drawFittedText(readout,x+1,y+2,w-2,13,juce::Justification::centred,1,.72f);
 
 }
 
@@ -1150,6 +1153,7 @@ void SkellFlangAudioProcessorEditor::bindRawControls(bool native) {
         link.reset();
         const auto* id=shownChorus?skellflang::classicchorus::ids[k]:native?skellflang::RawFlangusPath::ids[k]:legacyIds[k];
         slider.getProperties().set("rawFlangus",native||shownChorus);
+        slider.getProperties().remove("displayValue");
         if(k>0)faderLabels[k-1].setText(shownChorus?skellflang::classicchorus::shortNames[k]:lanes[k-1],juce::dontSendNotification);
         link=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(processor.parameters,id,slider);
         if(auto* param=processor.parameters.getParameter(id))
@@ -1159,12 +1163,23 @@ void SkellFlangAudioProcessorEditor::bindRawControls(bool native) {
             if(shownChorus) {
                 const int raw=juce::roundToInt(control->getValue());
                 const auto physical=k==1?juce::String(5.f*raw/5000.f,2)+" ms":juce::String(skelly::fruitychorusfx::paramText(int(k),float(raw)/float(skellflang::classicchorus::maximum[k])));
+                juce::String compact=physical;
+                if(k>=6) {
+                    if(physical=="parabola")compact="PARA";
+                    else if(physical=="sharp sine")compact="S-SIN";
+                    else compact=physical.toUpperCase();
+                } else compact=compact.replace(" ","");
+                control->getProperties().set("displayValue",compact);
                 control->setTooltip(juce::String(skellflang::classicchorus::names[k])+" : "+juce::String(raw)+" raw / "+physical);
+                control->repaint();
             } else if(shownRaw) {
                 const auto raw=juce::roundToInt(control->getValue());
                 const float lo=float(skellflang::rawsettings::minimum[k]),hi=float(skellflang::rawsettings::maximum[k]);
                 const auto physical=skell::flangusfx::paramText(int(k),(float(raw)-lo)/(hi-lo));
+                // Keep signed raw values visible on the fader, and the exact
+                // physical mapping accessible through its tooltip.
                 control->setTooltip(juce::String(skellflang::rawsettings::names[k])+" : "+juce::String(raw)+" raw / "+juce::String(physical));
+                control->repaint();
             } else control->setTooltip(juce::String(skellflang::rawsettings::names[k])+" : "+juce::String(control->getValue(),2));
         };
         slider.onValueChange();slider.repaint();
@@ -1579,10 +1594,10 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     // Every parameter is available without entering a separate MOD page.
     g.setColour(skin.secondary);
     g.setFont(juce::Font(10.5f*typeBoost,juce::Font::bold));
-    g.drawFittedText((native||shownChorus)?"03 / GAIN":"03 / TONE",27,367,84,15,
+    g.drawFittedText((native||shownChorus)?"03 / OUTPUT":"03 / TONE",27,367,84,15,
                      juce::Justification::centredLeft,1);
     g.setFont(juce::Font(10.2f*typeBoost));
-    g.drawFittedText("ESSENTIALS",27,394,92,13,
+    g.drawFittedText((native||shownChorus)?"MASTER":"ESSENTIALS",27,394,92,13,
                      juce::Justification::centredLeft,1);
     // Separate the three always-visible tone knobs from one focused character
     // macro. Four selector pads keep every existing DSP parameter reachable.
@@ -1598,7 +1613,13 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
                      juce::Justification::centredLeft,1);
     g.setColour(skin.accent.withAlpha(.78f));
     g.fillRoundedRectangle(383.f,373.f,32.f,1.2f,.6f);
-    if(native){g.setColour(skin.secondary);g.setFont(juce::Font(12.f));g.drawFittedText("Signed raw integers / hover for physical values\nSettings: exact entry, import and export",383,383,307,48,juce::Justification::centredLeft,2);}
+    if(native){g.setColour(skin.secondary);g.setFont(juce::Font(11.5f));g.drawFittedText("SIGNED DRY / WET     •     1–9 VOICES\nHover for units   /   Settings for exact entry",383,383,307,48,juce::Justification::centredLeft,2);}
+    if(native||shownChorus){
+        g.setColour(skin.secondary);g.setFont(juce::Font(10.5f*typeBoost,juce::Font::bold));
+        g.drawFittedText(shownChorus?"CLASSIC / 3 LFO":"NATIVE / 18 VOICES",114,381,171,15,juce::Justification::centredLeft,1);
+        g.setFont(juce::Font(10.f*typeBoost));
+        g.drawFittedText(shownChorus?"Free-running modulation":"Independent dry / wet",114,401,171,15,juce::Justification::centredLeft,1);
+    }
     g.setColour(skin.outline);
     g.fillRoundedRectangle(27.f,446.f,669.f,1.f,.5f);
     // A selected button is the effect being EDITED, not the entire audible
@@ -1614,7 +1635,7 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     }
     const auto* stackParam=processor.parameters.getRawParameterValue("layerMode");
     const bool stackEnabled=stackParam&&stackParam->load(std::memory_order_relaxed)>.5f;
-    const juce::String description=shownChorusUnavailable?juce::String("CHORUS BYPASS / 32-192 kHz REQUIRED"):unavailable?juce::String("FLANGUS BYPASS / 32-192 kHz REQUIRED"):native?juce::String("FLANGUS / NATIVE ENGINE  |  ")+names:stackEnabled
+    const juce::String description=shownChorusUnavailable?juce::String("CHORUS BYPASS / 32-192 kHz REQUIRED"):unavailable?juce::String("FLANGUS BYPASS / 32-192 kHz REQUIRED"):native?juce::String("FLANGUS / NATIVE ENGINE  |  ")+names:shownChorus?juce::String("CLASSIC CHORUS  |  ")+names:stackEnabled
         ? ("LAYERS  "+juce::String(count)+"/5     "+names)
         : ("LEGACY MODE  /  "+juce::String(modes[std::clamp(shownMode,0,7)]));
     g.setColour(glow.withAlpha(skin.themeIndex==2?.92f:.86f));

@@ -103,7 +103,7 @@ if(TARGET flang-raw-path)
   add_test(NAME flang-native-route COMMAND flang-native-route)
 endif()
 
-set(SKELL_CHORUS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Source/NativeChorus" CACHE PATH "Licensed Classic Chorus source directory")
+set(SKELL_CHORUS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Source/NativeChorus" CACHE PATH "Vendored Classic Chorus source directory")
 if(EXISTS "${SKELL_CHORUS_SOURCE_DIR}/ChorusFx.cpp")
   add_executable(flang-native-classic test_native_classic.cpp "${SKELL_CHORUS_SOURCE_DIR}/ChorusFx.cpp")
   target_include_directories(flang-native-classic PRIVATE ../Source "${SKELL_CHORUS_SOURCE_DIR}")
