@@ -1,0 +1,3 @@
+# Exact provenance-pinned native source: do not change newlines on checkout.
+Source/NativeFlangus/** -text
+Source/NativeChorus/** -text
