@@ -1,0 +1,6 @@
+# Native lifecycle follow-up (draft)
+Portable wrapper now uses integer-sample 20 ms mode fades, clears cached audio on host reset, and statically checks the raw codec against the private engine's parameter contract. Native unsupported-rate fallback shows actual legacy controls and a warning; clicking the currently selected native Flangus tab no longer silently exits native. Raw values are clamped before rounding. Existing public legacy engine and factory parameters untouched.
+ 
+Portable regression: original path test + new lifecycle test, GCC and Clang, with and without sample-clock option. Five rates x eight host block sizes, exact fade endpoints, negative dry polarity, fresh-engine reset parity, bypass and finite output. ASan/UBSan new lifecycle pass (Clang). Private engine v2 source unchanged.
+ 
+New native-only host and Quick4 fixture: run SkellFlangUiSmoke --native --output native-quick4; add --full for 12 scenes (four sizes, three themes). Checks raw range and signed automation, state restore, dry-only routing, unsupported rate fallback/recovery, Orbit navigation, visible controls. Source only; not yet built or executed against JUCE. No screenshot claim. Public Windows CI still validates standard variant only.

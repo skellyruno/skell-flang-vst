@@ -73,7 +73,8 @@ void SkellFlangAudioProcessor::prepareToPlay(double sr,int) {
     rate=std::max(8000.0,sr);
     engines.prepare(rate);pitchTracker.prepare(rate);crossfade.prepare();
 #if defined(SKELLFLANG_RAW_ENGINE)
-    rawFlangus.prepare(sr,rawFlangusSettings(),rawFlangusRequested());
+    const bool prepared=rawFlangus.prepare(sr,rawFlangusSettings(),rawFlangusRequested());
+    rawStatus.store(prepared?1:0,std::memory_order_release);
 #endif
     for(auto& smoother:controlSmoothers)smoother.prepare(rate);
     dryMix.reset(rate,.006);wetMix.reset(rate,.006);outputMix.reset(rate,.006);
@@ -106,6 +107,7 @@ float SkellFlangAudioProcessor::raw(const char* id)const noexcept {
     return v?v->load(std::memory_order_relaxed):0;
 }
 #if defined(SKELLFLANG_RAW_ENGINE)
+void SkellFlangAudioProcessor::reset() {rawFlangus.reset();}
 bool SkellFlangAudioProcessor::rawFlangusRequested()const noexcept {
     return raw(skellflang::RawFlangusPath::enabledId)>.5f && int(raw("mode"))==6;
 }
@@ -113,7 +115,7 @@ skellflang::RawFlangusPath::State SkellFlangAudioProcessor::rawFlangusSettings()
     auto s=skell::flangusfx::defaults;
     for(std::size_t k=0;k<s.size();++k) {
         const float v=raw(skellflang::RawFlangusPath::ids[k]);
-        if(std::isfinite(v))s[k]=std::clamp(int(std::lround(v)),skell::flangusfx::rawMin[k],skell::flangusfx::rawMax[k]);
+        if(std::isfinite(v))s[k]=int(std::lround(std::clamp(v,float(skell::flangusfx::rawMin[k]),float(skell::flangusfx::rawMax[k]))));
     }
     return s;
 }

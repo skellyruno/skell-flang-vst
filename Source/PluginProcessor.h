@@ -37,6 +37,8 @@ public:
     void applyFactoryPreset(int);
 #if defined(SKELLFLANG_RAW_ENGINE)
     bool rawFlangusRequested() const noexcept;
+    int rawEngineStatus() const noexcept {return rawStatus.load(std::memory_order_acquire);}
+    void reset() override;
     skellflang::RawFlangusPath::State rawFlangusSettings() const noexcept;
 #endif
     // New layered mode is additive; these exact parameter IDs are never recycled.
@@ -63,6 +65,8 @@ private:
     skellflang::EngineBank engines;
 #if defined(SKELLFLANG_RAW_ENGINE)
     skellflang::RawFlangusPath rawFlangus;
+    // -1: not prepared, 0: unsupported/failed, 1: ready.
+    std::atomic<int> rawStatus{-1};
 #endif
     skellflang::PitchTracker pitchTracker;
     skellflang::EqualPowerBlend crossfade;

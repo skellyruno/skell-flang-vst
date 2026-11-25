@@ -28,11 +28,12 @@ void click(juce::TextButton* b,const char* error){
 }
 
 int main(int argc,char** argv){
-    bool full=false;
+    bool full=false,nativeOnly=false;
     juce::String capturePath="build/ui-smoke";
     for(int i=1;i<argc;++i){
         const juce::String arg(argv[i]);
         if(arg=="--full")full=true;
+        else if(arg=="--native")nativeOnly=true;
         else if(arg=="--output" && i+1<argc)capturePath=argv[++i];
         else {std::cerr<<"Unknown Quick4 argument: "<<arg.toStdString()<<"\n";return 2;}
     }
@@ -49,6 +50,90 @@ int main(int argc,char** argv){
         if(full) {
             editor->addToDesktop(0);
             verify(editor->isShowing(),"Editor needs a native peer for real screenshots");
+        }
+        if(nativeOnly) {
+#if defined(SKELLFLANG_RAW_ENGINE)
+            using P=skellflang::RawFlangusPath;
+            auto set=[&](const char* id,float value){
+                auto* p=processor.parameters.getParameter(id);
+                verify(p!=nullptr,"Missing native host parameter");
+                p->setValueNotifyingHost(p->convertTo0to1(value));
+            };
+            processor.applyFactoryPreset(7);
+            set("mode",6);set(P::enabledId,1);
+            const std::array<const char*,8> controls{{"fader-order","fader-depth","fader-speed","fader-delay","fader-spread","fader-cross","fader-dry","fader-wet"}};
+            const P::State signedState{{9,1024,768,8,128,-128,-96,96}};
+            for(std::size_t k=0;k<8;++k)set(P::ids[k],float(signedState[k]));
+            processor.prepareToPlay(48000.,4096);
+            auto refresh=[&]{click(byID(*editor,"skull"),"Native refresh failed");};
+            refresh();
+            for(std::size_t k=0;k<8;++k){
+                auto* slider=dynamic_cast<juce::Slider*>(editor->findChildWithID(controls[k]));
+                verify(slider!=nullptr&&slider->isVisible(),"Native control missing");
+                verify(slider->getMinimum()==skellflang::rawsettings::minimum[k]&&slider->getMaximum()==skellflang::rawsettings::maximum[k],"Native integer range wrong");
+                verify(slider->getValue()==signedState[k],"Native fader not bound to raw state");
+            }
+            auto* cross=dynamic_cast<juce::Slider*>(editor->findChildWithID("fader-cross"));
+            cross->setValue(-17,juce::sendNotificationSync);
+            verify(processor.rawFlangusSettings()[5]==-17,"Native fader did not automate raw ID");
+            set(P::ids[5],-128);
+            click(findButton(*editor,"FLANGUS"),"Native Flangus tab missing");
+            verify(processor.rawFlangusRequested(),"Selected native tab disabled native mode");
+            verify(!editor->findChildWithID("lfo-wave")->isVisible()&&!editor->findChildWithID("tone-0")->isVisible(),"Ignored control visible in native mode");
+            juce::MemoryBlock saved;
+            processor.getStateInformation(saved);
+            processor.applyFactoryPreset(0);
+            verify(!processor.rawFlangusRequested(),"Legacy factory unexpectedly selected native");
+            processor.setStateInformation(saved.getData(),int(saved.getSize()));
+            verify(processor.rawFlangusRequested()&&processor.rawFlangusSettings()==signedState,"Native state roundtrip failed");
+            // Check the real processor against signed dry-only source, without legacy dry/wet.
+            set(P::ids[6],-128);set(P::ids[7],0);set("output",0);set("power",1);
+            processor.prepareToPlay(48000.,4096);
+            juce::AudioBuffer<float> nativeAudio(2,4096);
+            juce::MidiBuffer noMidi;
+            for(int i=0;i<4096;++i){nativeAudio.setSample(0,i,.25f);nativeAudio.setSample(1,i,-.5f);}
+            processor.processBlock(nativeAudio,noMidi);
+            for(int i=0;i<4096;++i)verify(nativeAudio.getSample(0,i)==-.25f&&nativeAudio.getSample(1,i)==.5f,"Native signed dry or exclusive routing failed");
+            processor.reset();
+            processor.prepareToPlay(22050.,32);
+            refresh();
+            verify(processor.rawEngineStatus()==0&&editor->findChildWithID("lfo-wave")->isVisible(),"Unsupported rate must show legacy controls");
+            processor.setStateInformation(saved.getData(),int(saved.getSize()));
+            processor.prepareToPlay(48000.,4096);
+            refresh();
+            verify(processor.rawEngineStatus()==1&&!editor->findChildWithID("lfo-wave")->isVisible(),"Native recovery after unsupported rate failed");
+            skellcore::ui::headless::Options nativeOptions;
+            nativeOptions.project="Skell-Flang native controls";nativeOptions.minimumColours=12;
+            for(int width:{540,720,900,1080})for(int skin=0;skin<(full?3:1);++skin) {
+                const int themeIndex=full?skin:(width==900?1:width==1080?2:0);
+                nativeOptions.scenes.push_back({"native-"+juce::String(width)+"-theme-"+juce::String(themeIndex),width,juce::roundToInt(width*500./720.),themeIndex,6,false});
+            }
+            nativeOptions.configure=[&](const auto& scene){
+                // Theme is persisted by the existing skull control.
+                const int target=scene.id.fromLastOccurrenceOf("-theme-",false,false).getIntValue();
+                for(int i=0;i<3&&int(processor.parameters.state.getProperty("uiTheme",0))!=target;++i)refresh();
+                verify(int(processor.parameters.state.getProperty("uiTheme",0))==target,"Native theme selection failed");
+            };
+            nativeOptions.inspect=[&]{
+                juce::StringArray errors;
+                for(const auto* id:controls){
+                    auto* c=editor->findChildWithID(id);
+                    if(!c||!c->isVisible()||!editor->getLocalBounds().contains(c->getBounds()))errors.add("Native control outside bounds: "+juce::String(id));
+                }
+                return errors;
+            };
+            const auto out=juce::File::isAbsolutePath(capturePath)?juce::File(capturePath):juce::File::getCurrentWorkingDirectory().getChildFile(capturePath);
+            const auto report=skellcore::ui::headless::render(*editor,out,nativeOptions);
+            for(const auto& error:report.errors)std::cerr<<error.toStdString()<<"\n";
+            verify(report.passed()&&report.captured==(full?12:4),"Native Quick4 capture failed");
+            click(findButton(*editor,"ORBIT"),"Cannot exit native mode to Orbit");
+            verify(!processor.rawFlangusRequested()&&int(processor.parameters.getRawParameterValue("mode")->load())==4,"Orbit selection did not exit native");
+            verify(editor->findChildWithID("lfo-wave")->isVisible(),"Legacy controls not restored");
+            std::cout<<"Native host smoke and "<<report.captured<<" real editor captures passed\n";
+            return 0;
+#else
+            std::cerr<<"--native requires the private native-engine build\n";return 2;
+#endif
         }
         verify(editor->getWidth()==540 && editor->getHeight()==375,
                "Compact 540 x 375 editor proportions are incorrect");

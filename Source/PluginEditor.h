@@ -53,7 +53,7 @@ private:
     void applyRawSettings(const skellflang::rawsettings::State&);
     void openRawEntry();
     void chooseRawFile(bool,bool);
-    bool shownRaw=false;
+    bool shownRaw=false,shownRawUnavailable=false;
     std::unique_ptr<juce::FileChooser> rawFileChooser;
 #endif
 

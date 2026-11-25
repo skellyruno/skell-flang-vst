@@ -853,6 +853,9 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         button.onClick=[this,i,mode] {
 #if defined(SKELLFLANG_RAW_ENGINE)
             if(processor.rawFlangusRequested()) {
+                // Clicking the already active native tab must not silently
+                // switch to legacy Flangus.
+                if(mode==6){tabs[size_t(i)].setToggleState(true,juce::dontSendNotification);return;}
                 const auto edit=[this](const char* key,float value) {
                     if(auto* p=processor.parameters.getParameter(key)) {
                         p->beginChangeGesture();p->setValueNotifyingHost(p->convertTo0to1(value));p->endChangeGesture();
@@ -1235,9 +1238,11 @@ void SkellFlangAudioProcessorEditor::updateMode() {
     const auto* layering=processor.parameters.getRawParameterValue("layerMode");
     const bool legacy=layering&&layering->load(std::memory_order_relaxed)<.5f;
 #if defined(SKELLFLANG_RAW_ENGINE)
-    const bool native=processor.rawFlangusRequested();
-    const bool nativeChanged=native!=shownRaw;
-    if(nativeChanged){shownRaw=native;bindRawControls(native);}
+    const bool unavailable=processor.rawFlangusRequested()&&processor.rawEngineStatus()==0;
+    const bool native=processor.rawFlangusRequested()&&!unavailable;
+    const bool nativeChanged=native!=shownRaw||unavailable!=shownRawUnavailable;
+    if(native!=shownRaw){shownRaw=native;bindRawControls(native);}
+    shownRawUnavailable=unavailable;
 #else
     constexpr bool native=false,nativeChanged=false;
 #endif
@@ -1374,9 +1379,9 @@ void SkellFlangAudioProcessorEditor::timerCallback() {
 void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     const float s=getWidth()/float(baseW);
 #if defined(SKELLFLANG_RAW_ENGINE)
-    const bool native=shownRaw;
+    const bool native=shownRaw,unavailable=shownRawUnavailable;
 #else
-    constexpr bool native=false;
+    constexpr bool native=false,unavailable=false;
 #endif
     g.fillAll(skin.background);
     g.saveState();
@@ -1541,7 +1546,7 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     }
     const auto* stackParam=processor.parameters.getRawParameterValue("layerMode");
     const bool stackEnabled=stackParam&&stackParam->load(std::memory_order_relaxed)>.5f;
-    const juce::String description=native?juce::String("NATIVE FLANGUS / EXCLUSIVE RAW ENGINE"):stackEnabled
+    const juce::String description=unavailable?juce::String("NATIVE UNAVAILABLE / LEGACY AUDIO (32-192 kHz REQUIRED)"):native?juce::String("NATIVE FLANGUS / EXCLUSIVE RAW ENGINE"):stackEnabled
         ? ("LAYERS  "+juce::String(count)+"/5     "+names)
         : ("LEGACY MODE  /  "+juce::String(modes[std::clamp(shownMode,0,7)]));
     g.setColour(glow.withAlpha(skin.themeIndex==2?.92f:.86f));
