@@ -41,3 +41,16 @@ if(SKELLFLANG_BUILD_UI_SMOKE)
   target_link_libraries(SkellFlangUiSmoke PRIVATE SkellFlang SkellCore::UIRenderer juce::juce_audio_utils juce::juce_gui_extra)
 endif()
 
+
+# Optional owner-controlled Skelly Licensing source; standard build stays unchanged.
+set(SKELLY_FLANGUS_SOURCE_DIR "" CACHE PATH "Private Skelly Flangus DSP package directory")
+if(NOT SKELLY_FLANGUS_SOURCE_DIR STREQUAL "")
+  foreach(f Flangus.cpp SkellFlangusAdapter.h core/FlangusFastDist.h)
+    if(NOT EXISTS "${SKELLY_FLANGUS_SOURCE_DIR}/${f}")
+      message(FATAL_ERROR "Missing private Flangus source: ${f}")
+    endif()
+  endforeach()
+  target_sources(SkellFlang PRIVATE "${SKELLY_FLANGUS_SOURCE_DIR}/Flangus.cpp" Source/SkellRawFlangusPath.h)
+  target_include_directories(SkellFlang PUBLIC "${SKELLY_FLANGUS_SOURCE_DIR}")
+  target_compile_definitions(SkellFlang PUBLIC SKELLFLANG_RAW_ENGINE=1)
+endif()

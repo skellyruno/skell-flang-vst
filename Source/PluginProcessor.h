@@ -1,6 +1,9 @@
 #pragma once
 #include <JuceHeader.h>
 #include "FlangDSP.h"
+#if defined(SKELLFLANG_RAW_ENGINE)
+#include "SkellRawFlangusPath.h"
+#endif
 #include <SkellCore/WorldLink.h>
 #include <array>
 #include <atomic>
@@ -54,6 +57,10 @@ private:
     float raw(const char*) const noexcept;
     skellflang::Controls settings(int mode) const noexcept;
     skellflang::EngineBank engines;
+#if defined(SKELLFLANG_RAW_ENGINE)
+    skellflang::RawFlangusPath::State rawFlangusSettings() const noexcept;
+    skellflang::RawFlangusPath rawFlangus;
+#endif
     skellflang::PitchTracker pitchTracker;
     skellflang::EqualPowerBlend crossfade;
     std::array<juce::SmoothedValue<float,juce::ValueSmoothingTypes::Linear>,5> layerGains;

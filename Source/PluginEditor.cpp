@@ -976,6 +976,15 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         const auto* active=processor.parameters.getRawParameterValue("power");
         const bool powered=active&&active->load(std::memory_order_relaxed)>.5f;
         menu.addItem(1,"Effect enabled",true,powered);
+#if defined(SKELLFLANG_RAW_ENGINE)
+        menu.addSeparator();
+        menu.addSectionHeader("SKELLY RAW FLANGUS / TRIAL");
+        const auto* native=processor.parameters.getRawParameterValue(skellflang::RawFlangusPath::enabledId);
+        menu.addItem(60,"Exclusive raw Flangus",true,native&&native->load(std::memory_order_relaxed)>.5f);
+        menu.addItem(61,"Reset eight raw controls to defaults");
+        menu.addItem(62,"Edit Raw Flangus parameters in host (32-192 kHz)",false,false);
+        menu.addItem(63,"Rack tone/morph/layers ignored in raw mode",false,false);
+#endif
         menu.addSeparator();
         menu.addSectionHeader("WINDOW SIZE");
         const char* names[]{"Compact - 540 px","Comfort - 720 px",
@@ -996,6 +1005,23 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
                                .withMaximumNumColumns(1),
             [safeEditor](int item){
                 if(!safeEditor)return;
+#if defined(SKELLFLANG_RAW_ENGINE)
+                if(item==60) {
+                    if(auto* v=safeEditor->processor.parameters.getParameter(skellflang::RawFlangusPath::enabledId)) {
+                        v->beginChangeGesture();v->setValueNotifyingHost(v->getValue()>.5f?0.f:1.f);v->endChangeGesture();
+                    }
+                    return;
+                }
+                if(item==61) {
+                    for(std::size_t k=0;k<skellflang::RawFlangusPath::ids.size();++k)
+                        if(auto* v=safeEditor->processor.parameters.getParameter(skellflang::RawFlangusPath::ids[k])) {
+                            v->beginChangeGesture();
+                            v->setValueNotifyingHost(v->convertTo0to1(float(skell::flangusfx::defaults[k])));
+                            v->endChangeGesture();
+                        }
+                    return;
+                }
+#endif
                 if(item==50) {
                     // UI thread only; never send networking or thread actions
                     // through processBlock or JUCE parameter automation.

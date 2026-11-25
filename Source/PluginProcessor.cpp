@@ -45,6 +45,17 @@ State::ParameterLayout SkellFlangAudioProcessor::createLayout(){
     boolean(p,"layerFlangus","Layer Flangus");
     boolean(p,"layerOrbit","Layer Orbit");
     boolean(p,"layerDimension","Layer Dimension");
+#if defined(SKELLFLANG_RAW_ENGINE)
+    // Separate integer controls: do not remap or recycle legacy rack parameters.
+    boolean(p,skellflang::RawFlangusPath::enabledId,"Skelly Raw Flangus (trial)",false);
+    for(int i=0;i<skell::flangusfx::params;++i) {
+        const auto k=static_cast<std::size_t>(i);
+        p.add(std::make_unique<juce::AudioParameterInt>(
+            PID{skellflang::RawFlangusPath::ids[k],1},
+            juce::String("Raw Flangus ")+skell::flangusfx::paramName(i),
+            skell::flangusfx::rawMin[k],skell::flangusfx::rawMax[k],skell::flangusfx::defaults[k]));
+    }
+#endif
     return p;
 }
 SkellFlangAudioProcessor::SkellFlangAudioProcessor()
@@ -61,6 +72,9 @@ bool SkellFlangAudioProcessor::isBusesLayoutSupported(const BusesLayout& l)const
 void SkellFlangAudioProcessor::prepareToPlay(double sr,int) {
     rate=std::max(8000.0,sr);
     engines.prepare(rate);pitchTracker.prepare(rate);crossfade.prepare();
+#if defined(SKELLFLANG_RAW_ENGINE)
+    rawFlangus.prepare(sr,rawFlangusSettings(),raw(skellflang::RawFlangusPath::enabledId)>.5f);
+#endif
     for(auto& smoother:controlSmoothers)smoother.prepare(rate);
     dryMix.reset(rate,.006);wetMix.reset(rate,.006);outputMix.reset(rate,.006);
     powerMix.reset(rate,.005);morphMix.reset(rate,.025);
@@ -91,6 +105,16 @@ float SkellFlangAudioProcessor::raw(const char* id)const noexcept {
     const auto* v=parameters.getRawParameterValue(id);
     return v?v->load(std::memory_order_relaxed):0;
 }
+#if defined(SKELLFLANG_RAW_ENGINE)
+skellflang::RawFlangusPath::State SkellFlangAudioProcessor::rawFlangusSettings()const noexcept {
+    auto s=skell::flangusfx::defaults;
+    for(std::size_t k=0;k<s.size();++k) {
+        const float v=raw(skellflang::RawFlangusPath::ids[k]);
+        if(std::isfinite(v))s[k]=std::clamp(int(std::lround(v)),skell::flangusfx::rawMin[k],skell::flangusfx::rawMax[k]);
+    }
+    return s;
+}
+#endif
 skellflang::Controls SkellFlangAudioProcessor::settings(int mode)const noexcept {
     skellflang::Controls p;
     p.mode=mode;p.order=std::clamp(int(raw("order")),1,8);
@@ -138,6 +162,9 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
     float peakL=0,peakR=0;
     auto* left=buffer.getWritePointer(0);
     auto* right=channels>1?buffer.getWritePointer(1):nullptr;
+#if defined(SKELLFLANG_RAW_ENGINE)
+    rawFlangus.beginBlock(raw(skellflang::RawFlangusPath::enabledId)>.5f,rawFlangusSettings());
+#endif
     const bool tracking=!layered && (active==5 || (target==5 && requestedMorph>.0001f)
                         || (previous==5 && remaining>0));
     if(tracking && right) {
@@ -155,6 +182,11 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
         else if(midEnergy>sideEnergy*1.2) pitchFromSide=false;
     }
     for(int i=0;i<length;++i) {
+#if defined(SKELLFLANG_RAW_ENGINE)
+        if(i%skellflang::RawFlangusPath::chunkSize==0)
+            rawFlangus.renderChunk(left+i,right?right+i:nullptr,
+                std::min(skellflang::RawFlangusPath::chunkSize,length-i));
+#endif
         const float a=std::isfinite(left[i])?left[i]:0.f;
         const float b=right?(std::isfinite(right[i])?right[i]:0.f):a;
         if(tracking)
@@ -228,8 +260,12 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
         }
         const float dry=dryMix.getNextValue(),wetGain=wetMix.getNextValue();
         const float output=outputMix.getNextValue(),power=powerMix.getNextValue();
-        const float l=a*(1-power)+power*output*(dry*a+wetGain*wet[0]);
-        const float r=b*(1-power)+power*output*(dry*b+wetGain*wet[1]);
+        float l=a*(1-power)+power*output*(dry*a+wetGain*wet[0]);
+        float r=b*(1-power)+power*output*(dry*b+wetGain*wet[1]);
+#if defined(SKELLFLANG_RAW_ENGINE)
+        const auto mixed=rawFlangus.blend(i%skellflang::RawFlangusPath::chunkSize,a,b,l,r,output,power);
+        l=mixed[0];r=mixed[1];
+#endif
         // Preserve floating-point DAW headroom. Full bypass remains bit-transparent
         // for finite samples; active mix only guards runaway/non-finite values.
         const float safeL=power<=0.f?a:skellflang::safeHostOutput(l);
@@ -272,6 +308,19 @@ void SkellFlangAudioProcessor::setStateInformation(const void* ptr,int size) {
             for(int i=0;i<tree.getNumChildren();++i)
                 if(tree.getChild(i).getProperty("id").toString()=="layerMode")
                     modern=true;
+#if defined(SKELLFLANG_RAW_ENGINE)
+            // Missing appended IDs must not inherit settings from a previously loaded trial.
+            const auto addMissing=[&](const char* id,float value) {
+                for(int i=0;i<tree.getNumChildren();++i)
+                    if(tree.getChild(i).getProperty("id").toString()==id)return;
+                juce::ValueTree child("PARAM");
+                child.setProperty("id",id,nullptr);child.setProperty("value",value,nullptr);
+                tree.appendChild(child,nullptr);
+            };
+            addMissing(skellflang::RawFlangusPath::enabledId,0.f);
+            for(std::size_t k=0;k<skellflang::RawFlangusPath::ids.size();++k)
+                addMissing(skellflang::RawFlangusPath::ids[k],float(skell::flangusfx::defaults[k]));
+#endif
             parameters.replaceState(tree);
             if(!modern)
                 if(auto* p=parameters.getParameter("layerMode"))
@@ -324,6 +373,11 @@ void SkellFlangAudioProcessor::applyFactoryPreset(int number) {
         {"lfoShape",0.f},
         {"lfoSync",0.f},{"output",0.f},{"power",1.f}
     };
+#if defined(SKELLFLANG_RAW_ENGINE)
+    if(auto* enabled=parameters.getParameter(skellflang::RawFlangusPath::enabledId)) {
+        enabled->beginChangeGesture();enabled->setValueNotifyingHost(0.f);enabled->endChangeGesture();
+    }
+#endif
     for(const auto& edit:edits)if(auto* value=parameters.getParameter(edit.id)){
         value->beginChangeGesture();
         value->setValueNotifyingHost(value->convertTo0to1(edit.value));
