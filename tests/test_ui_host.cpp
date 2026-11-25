@@ -28,12 +28,13 @@ void click(juce::TextButton* b,const char* error){
 }
 
 int main(int argc,char** argv){
-    bool full=false,nativeOnly=false;
+    bool full=false,nativeOnly=false,noCapture=false;
     juce::String capturePath="build/ui-smoke";
     for(int i=1;i<argc;++i){
         const juce::String arg(argv[i]);
         if(arg=="--full")full=true;
         else if(arg=="--native")nativeOnly=true;
+        else if(arg=="--no-capture")noCapture=true;
         else if(arg=="--output" && i+1<argc)capturePath=argv[++i];
         else {std::cerr<<"Unknown Quick4 argument: "<<arg.toStdString()<<"\n";return 2;}
     }
@@ -60,6 +61,7 @@ int main(int argc,char** argv){
                 p->setValueNotifyingHost(p->convertTo0to1(value));
             };
             processor.applyFactoryPreset(7);
+            verify(processor.rawFlangusRequested(),"Factory Flangus must select the native engine by default");
             set("mode",6);set(P::enabledId,1);
             const std::array<const char*,8> controls{{"fader-order","fader-depth","fader-speed","fader-delay","fader-spread","fader-cross","fader-dry","fader-wet"}};
             const P::State signedState{{9,1024,768,8,128,-128,-96,96}};
@@ -102,6 +104,7 @@ int main(int argc,char** argv){
             processor.prepareToPlay(48000.,4096);
             refresh();
             verify(processor.rawEngineStatus()==1&&!editor->findChildWithID("lfo-wave")->isVisible(),"Native recovery after unsupported rate failed");
+            if(!noCapture) {
             skellcore::ui::headless::Options nativeOptions;
             nativeOptions.project="Skell-Flang native controls";nativeOptions.minimumColours=12;
             for(int width:{540,720,900,1080})for(int skin=0;skin<(full?3:1);++skin) {
@@ -126,15 +129,24 @@ int main(int argc,char** argv){
             const auto report=skellcore::ui::headless::render(*editor,out,nativeOptions);
             for(const auto& error:report.errors)std::cerr<<error.toStdString()<<"\n";
             verify(report.passed()&&report.captured==(full?12:4),"Native Quick4 capture failed");
+            }
             click(findButton(*editor,"ORBIT"),"Cannot exit native mode to Orbit");
             verify(!processor.rawFlangusRequested()&&int(processor.parameters.getRawParameterValue("mode")->load())==4,"Orbit selection did not exit native");
             verify(editor->findChildWithID("lfo-wave")->isVisible(),"Legacy controls not restored");
-            std::cout<<"Native host smoke and "<<report.captured<<" real editor captures passed\n";
+            std::cout<<"Native host smoke passed"<<(noCapture?" (no capture)":" with real editor captures")<<"\n";
             return 0;
 #else
-            std::cerr<<"--native requires the private native-engine build\n";return 2;
+            std::cerr<<"--native requires the native-engine source\n";return 2;
 #endif
         }
+        const auto legacyPreset=[&](int n){
+            processor.applyFactoryPreset(n);
+#if defined(SKELLFLANG_RAW_ENGINE)
+            if(auto* flag=processor.parameters.getParameter(skellflang::RawFlangusPath::enabledId))
+                flag->setValueNotifyingHost(0.f);
+#endif
+        };
+        legacyPreset(0);
         verify(editor->getWidth()==540 && editor->getHeight()==375,
                "Compact 540 x 375 editor proportions are incorrect");
         verify(processor.getProgramName(0).isNotEmpty(),"Missing host program name");
@@ -181,7 +193,7 @@ int main(int argc,char** argv){
         verify(sync->getY()<65&&sync->getRight()<cog->getX()&&
                sync->getButtonText().isEmpty(),
                "SYNC symbol must be before settings");
-        processor.applyFactoryPreset(0);
+        legacyPreset(0);
         auto* chorus=findButton(*editor,"CHORUS");
         auto* flanger=findButton(*editor,"FLANGER");
         auto* orbit=findButton(*editor,"ORBIT");
@@ -240,7 +252,7 @@ int main(int argc,char** argv){
                "Edit-next switcher must hide when only one layer is active");
         verify(processor.parameters.getRawParameterValue("layerChorus")->load()>.5f,
                "All-off click is not guarded");
-        processor.applyFactoryPreset(0);
+        legacyPreset(0);
         // The host-only fixture applies a preset without running a GUI event
         // loop. Trigger the same refresh normally delivered by timerCallback.
         click(skull,"Could not refresh the factory preset display");
@@ -258,7 +270,7 @@ int main(int argc,char** argv){
         verify(preset->getButtonText()=="CUSTOM" &&
                processor.parameters.state.getProperty("presetName")=="CUSTOM",
                "Dragging a fader failed to identify a modified factory preset");
-        processor.applyFactoryPreset(0);
+        legacyPreset(0);
         verify(processor.parameters.state.getProperty("presetName")=="INIT",
                "Reloading factory preset did not restore its name");
         auto* tone=dynamic_cast<juce::Slider*>(
@@ -271,7 +283,7 @@ int main(int argc,char** argv){
         tone->onDragEnd();
         verify(processor.parameters.state.getProperty("presetName")=="CUSTOM",
                "Dragging a knob failed to update preset status");
-        processor.applyFactoryPreset(0);
+        legacyPreset(0);
         auto* look=dynamic_cast<FlangLookAndFeel*>(&editor->getLookAndFeel());
         verify(look!=nullptr,"Skell-Flang is not using the custom look-and-feel");
         // Factory presets are host-driven; refresh presentation before
@@ -316,7 +328,7 @@ int main(int argc,char** argv){
         click(macroSelectors[0],"Cannot restore default macro selector");
 
         // A factory preset must update the engine AND the character controls.
-        processor.applyFactoryPreset(7);
+        legacyPreset(7);
         verify(int(processor.parameters.getRawParameterValue("mode")->load())==6,
                "Flangus preset did not select Flangus");
         verify(processor.parameters.getRawParameterValue("extra0")->load()>.6f,
@@ -412,7 +424,7 @@ int main(int argc,char** argv){
             currentScene=scene.id;
             const int desired=scene.mode;
             const int bank=desired==0?0:desired==1?4:desired==6?7:desired==4?10:13;
-            processor.applyFactoryPreset(bank);
+            legacyPreset(bank);
             if(scene.browser) {
                 const int extra=desired==0?1:0;
                 click(findButton(*editor,extra==0?"CHORUS":"FLANGER"),
@@ -675,11 +687,11 @@ int main(int argc,char** argv){
                "Legacy tuned tracker lost anti-phase stereo note");
         // Host-level regression: restore complete VST3 state and confirm
         // factory mode, preset name and master controls survive save/reload.
-        processor.applyFactoryPreset(9);
+        legacyPreset(9);
         juce::MemoryBlock session;
         processor.getStateInformation(session);
         verify(session.getSize()>100,"VST3 session state was not serialized");
-        processor.applyFactoryPreset(0);
+        legacyPreset(0);
         verify(int(processor.parameters.getRawParameterValue("mode")->load())==0,
                "State fixture did not reset to Chorus");
         processor.setStateInformation(session.getData(),int(session.getSize()));
@@ -689,12 +701,12 @@ int main(int argc,char** argv){
                "Restored session lost preset identity");
 
         // New layer flags must round-trip through a VST3 project state.
-        processor.applyFactoryPreset(7); // Flangus Glow
+        legacyPreset(7); // Flangus Glow
         auto* orbitFlag=processor.parameters.getParameter("layerOrbit");
         orbitFlag->setValueNotifyingHost(orbitFlag->convertTo0to1(1.f));
         juce::MemoryBlock layerSession;
         processor.getStateInformation(layerSession);
-        processor.applyFactoryPreset(0);
+        legacyPreset(0);
         processor.setStateInformation(layerSession.getData(),int(layerSession.getSize()));
         verify(processor.parameters.getRawParameterValue("layerMode")->load()>.5f &&
                processor.parameters.getRawParameterValue("layerFlangus")->load()>.5f &&
@@ -708,7 +720,7 @@ int main(int argc,char** argv){
         enhanced->setValueNotifyingHost(1.f);
         juce::MemoryBlock trialState;
         processor.getStateInformation(trialState);
-        processor.applyFactoryPreset(10);
+        legacyPreset(10);
         verify(enhanced->getValue()==0.f,"Legacy factory selected experimental motion");
         processor.setStateInformation(trialState.getData(),int(trialState.getSize()));
         verify(enhanced->getValue()==1.f,"Enhanced motion recall failed");
@@ -724,7 +736,7 @@ int main(int argc,char** argv){
         // Audio must actually differ with two independent engines, without
         // duplicated dry gain or nonfinite output. Compare identical inputs.
         const auto measure=[&](bool layeredFlanger) {
-            processor.applyFactoryPreset(0);
+            legacyPreset(0);
             auto* flangerFlag=processor.parameters.getParameter("layerFlanger");
             flangerFlag->setValueNotifyingHost(
                 flangerFlag->convertTo0to1(layeredFlanger?1.f:0.f));

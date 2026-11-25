@@ -42,12 +42,21 @@ if(SKELLFLANG_BUILD_UI_SMOKE)
 endif()
 
 
-# Optional owner-controlled Skelly Licensing source; standard build stays unchanged.
-set(SKELLY_FLANGUS_SOURCE_DIR "" CACHE PATH "Private Skelly Flangus DSP package directory")
+# Normal source layout. Legacy source-only checkout remains buildable until
+# the owner supplies the licensed native files. Existing CMake cache paths
+# continue to work; no separate native plugin or VST3 identity.
+set(SKELLY_FLANGUS_SOURCE_DIR "" CACHE PATH "Native Flangus source override (optional)")
+if(SKELLY_FLANGUS_SOURCE_DIR STREQUAL "" AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Source/NativeFlangus/Flangus.cpp")
+  set(SKELLY_FLANGUS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Source/NativeFlangus")
+endif()
+option(SKELLFLANG_REQUIRE_NATIVE "Fail configuration if native Flangus is unavailable" OFF)
+if(SKELLFLANG_REQUIRE_NATIVE AND SKELLY_FLANGUS_SOURCE_DIR STREQUAL "")
+  message(FATAL_ERROR "Native Flangus source missing from Source/NativeFlangus")
+endif()
 if(NOT SKELLY_FLANGUS_SOURCE_DIR STREQUAL "")
   foreach(f Flangus.cpp SkellFlangusAdapter.h core/FlangusFastDist.h)
     if(NOT EXISTS "${SKELLY_FLANGUS_SOURCE_DIR}/${f}")
-      message(FATAL_ERROR "Missing private Flangus source: ${f}")
+      message(FATAL_ERROR "Missing native Flangus source: ${f}")
     endif()
   endforeach()
   target_sources(SkellFlang PRIVATE "${SKELLY_FLANGUS_SOURCE_DIR}/Flangus.cpp" Source/SkellRawFlangusPath.h)
@@ -55,10 +64,10 @@ if(NOT SKELLY_FLANGUS_SOURCE_DIR STREQUAL "")
   target_compile_definitions(SkellFlang PUBLIC SKELLFLANG_RAW_ENGINE=1)
 endif()
 
-option(SKELLY_FLANGUS_SAMPLE_CLOCK_RAMP "Use v2 sample-clock raw gain slew" OFF)
+option(SKELLY_FLANGUS_SAMPLE_CLOCK_RAMP "Use sample-clock native gain slew" OFF)
 if(SKELLY_FLANGUS_SAMPLE_CLOCK_RAMP)
   if(SKELLY_FLANGUS_SOURCE_DIR STREQUAL "")
-    message(FATAL_ERROR "Sample-clock ramp requires the private v2 DSP package")
+    message(FATAL_ERROR "Sample-clock ramp requires native v2 DSP source")
   endif()
   target_compile_definitions(SkellFlang PUBLIC SKELLFLANG_SAMPLE_CLOCK_RAMP=1)
 endif()

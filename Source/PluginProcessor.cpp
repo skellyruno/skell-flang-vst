@@ -47,7 +47,7 @@ State::ParameterLayout SkellFlangAudioProcessor::createLayout(){
     boolean(p,"layerDimension","Layer Dimension");
 #if defined(SKELLFLANG_RAW_ENGINE)
     // Separate integer controls: do not remap or recycle legacy rack parameters.
-    boolean(p,skellflang::RawFlangusPath::enabledId,"Skelly Raw Flangus (trial)",false);
+    boolean(p,skellflang::RawFlangusPath::enabledId,"Native Flangus",true);
     for(int i=0;i<skell::flangusfx::params;++i) {
         const auto k=static_cast<std::size_t>(i);
         p.add(std::make_unique<juce::AudioParameterInt>(
@@ -57,6 +57,9 @@ State::ParameterLayout SkellFlangAudioProcessor::createLayout(){
     }
 #endif
     boolean(p,"enhancedMotion","Enhanced Motion / Orbit",false);
+#if defined(SKELLFLANG_RAW_ENGINE)
+    boolean(p,"skellyRawExclusiveLegacy","Recall older exclusive native session",false);
+#endif
     return p;
 }
 SkellFlangAudioProcessor::SkellFlangAudioProcessor()
@@ -74,7 +77,9 @@ void SkellFlangAudioProcessor::prepareToPlay(double sr,int) {
     rate=std::max(8000.0,sr);
     engines.prepare(rate);pitchTracker.prepare(rate);crossfade.prepare();
 #if defined(SKELLFLANG_RAW_ENGINE)
-    const bool prepared=rawFlangus.prepare(sr,rawFlangusSettings(),rawFlangusRequested());
+    const bool nativeActive=raw(skellflang::RawFlangusPath::enabledId)>.5f &&
+        (rawFlangusExclusive() || (raw("layerMode")>.5f && raw("layerFlangus")>.5f));
+    const bool prepared=rawFlangus.prepare(sr,rawFlangusSettings(),nativeActive);
     rawStatus.store(prepared?1:0,std::memory_order_release);
 #endif
     for(auto& smoother:controlSmoothers)smoother.prepare(rate);
@@ -111,6 +116,9 @@ float SkellFlangAudioProcessor::raw(const char* id)const noexcept {
 void SkellFlangAudioProcessor::reset() {rawFlangus.reset();}
 bool SkellFlangAudioProcessor::rawFlangusRequested()const noexcept {
     return raw(skellflang::RawFlangusPath::enabledId)>.5f && int(raw("mode"))==6;
+}
+bool SkellFlangAudioProcessor::rawFlangusExclusive()const noexcept {
+    return rawFlangusRequested()&&(raw("skellyRawExclusiveLegacy")>.5f||raw("layerMode")<.5f);
 }
 skellflang::RawFlangusPath::State SkellFlangAudioProcessor::rawFlangusSettings()const noexcept {
     auto s=skell::flangusfx::defaults;
@@ -170,7 +178,12 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
     auto* left=buffer.getWritePointer(0);
     auto* right=channels>1?buffer.getWritePointer(1):nullptr;
 #if defined(SKELLFLANG_RAW_ENGINE)
-    rawFlangus.beginBlock(rawFlangusRequested(),rawFlangusSettings());
+    const bool nativeEnabled=raw(skellflang::RawFlangusPath::enabledId)>.5f;
+    const bool exclusiveNative=rawFlangusExclusive();
+    const bool nativeStack=layered&&raw("skellyRawExclusiveLegacy")<.5f;
+    const bool wantsNative=exclusiveNative || (nativeEnabled&&nativeStack&&
+        (raw("layerFlangus")>.5f||layerGains[2].getCurrentValue()>0.f||fallbackLayer==6));
+    rawFlangus.beginBlock(wantsNative,rawFlangusSettings());
 #endif
     const bool tracking=!layered && (active==5 || (target==5 && requestedMorph>.0001f)
                         || (previous==5 && remaining>0));
@@ -200,6 +213,10 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
             pitchTracker.push(.5f*(a+(pitchFromSide?-b:b)));
         const float cross=crossMix.getNextValue();
         std::array<float,2> wet{};
+#if defined(SKELLFLANG_RAW_ENGINE)
+        std::array<float,2> oldNativeWet{};
+        float nativeFraction=0.f;
+#endif
         if(layered) {
             float sum=0.f;
             // Independent DSP state for each engine. Mix only wet signals;
@@ -215,18 +232,27 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
                 // Approved Orbit remains unaltered, including its stereo field.
                 if(mode!=4)
                     effect=skellflang::stereoCrossfeed(effect[0],effect[1],cross);
+#if defined(SKELLFLANG_RAW_ENGINE)
+                if(nativeStack&&mode==6){oldNativeWet=effect;nativeFraction=gain;}
+#endif
                 wet[0]+=gain*effect[0];
                 wet[1]+=gain*effect[1];
                 sum+=gain;
             }
             if(sum>1.0e-6f) {
                 wet[0]/=sum;wet[1]/=sum;
+#if defined(SKELLFLANG_RAW_ENGINE)
+                nativeFraction/=sum;
+#endif
             } else {
                 auto controls=controlSmoothers[size_t(fallbackLayer)].next(
                     fallbackControls);
                 wet=engines.process(fallbackLayer,a,b,controls);
                 if(fallbackLayer!=4)
                     wet=skellflang::stereoCrossfeed(wet[0],wet[1],cross);
+#if defined(SKELLFLANG_RAW_ENGINE)
+                if(nativeStack&&fallbackLayer==6){oldNativeWet=wet;nativeFraction=1.f;}
+#endif
             }
             // Preserve the stored legacy morph parameter but do not apply it
             // in Layer Stack mode. Its identity remains valid for old projects.
@@ -270,7 +296,15 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
         float l=a*(1-power)+power*output*(dry*a+wetGain*wet[0]);
         float r=b*(1-power)+power*output*(dry*b+wetGain*wet[1]);
 #if defined(SKELLFLANG_RAW_ENGINE)
-        const auto mixed=rawFlangus.blend(i%skellflang::RawFlangusPath::chunkSize,a,b,l,r,output,power);
+        const int rawIndex=i%skellflang::RawFlangusPath::chunkSize;
+        std::array<float,2> mixed;
+        if(nativeStack&&!exclusiveNative) {
+            const float oldL=a*(1-power)+power*output*(dry*a+wetGain*oldNativeWet[0]);
+            const float oldR=b*(1-power)+power*output*(dry*b+wetGain*oldNativeWet[1]);
+            mixed=rawFlangus.blendLayer(rawIndex,a,b,l,r,oldL,oldR,output,power,nativeFraction);
+        } else {
+            mixed=rawFlangus.blend(rawIndex,a,b,l,r,output,power);
+        }
         l=mixed[0];r=mixed[1];
 #endif
         // Preserve floating-point DAW headroom. Full bypass remains bit-transparent
@@ -305,7 +339,7 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
 void SkellFlangAudioProcessor::getStateInformation(juce::MemoryBlock& m) {
     auto state=parameters.copyState();
 #if defined(SKELLFLANG_RAW_ENGINE)
-    state.setProperty("rawRoutingVersion",1,nullptr);
+    state.setProperty("rawRoutingVersion",2,nullptr);
 #endif
     if(auto xml=state.createXml())copyXmlToBinary(*xml,m);
 }
@@ -338,7 +372,13 @@ void SkellFlangAudioProcessor::setStateInformation(const void* ptr,int size) {
                     tree.getChildWithProperty("id","mode").setProperty("value",6.f,nullptr);
                 }
             }
-            tree.setProperty("rawRoutingVersion",1,nullptr);
+            // Native trial sessions were exclusive; preserve their audio on
+            // recall. New factory sounds and instances use native in the stack.
+            const auto oldEnabled=tree.getChildWithProperty("id",skellflang::RawFlangusPath::enabledId);
+            const bool wasExclusive=int(tree.getProperty("rawRoutingVersion",0))<2 &&
+                oldEnabled.isValid()&&float(oldEnabled.getProperty("value"))>.5f;
+            addMissing("skellyRawExclusiveLegacy",wasExclusive?1.f:0.f);
+            tree.setProperty("rawRoutingVersion",2,nullptr);
             for(std::size_t k=0;k<skellflang::RawFlangusPath::ids.size();++k)
                 addMissing(skellflang::RawFlangusPath::ids[k],float(skell::flangusfx::defaults[k]));
 #endif
@@ -395,8 +435,23 @@ void SkellFlangAudioProcessor::applyFactoryPreset(int number) {
         {"lfoSync",0.f},{"output",0.f},{"power",1.f},{"enhancedMotion",0.f}
     };
 #if defined(SKELLFLANG_RAW_ENGINE)
-    if(auto* enabled=parameters.getParameter(skellflang::RawFlangusPath::enabledId)) {
-        enabled->beginChangeGesture();enabled->setValueNotifyingHost(0.f);enabled->endChangeGesture();
+    const auto setNative=[&](const char* id,float v) {
+        if(auto* q=parameters.getParameter(id)){
+            q->beginChangeGesture();q->setValueNotifyingHost(q->convertTo0to1(v));q->endChangeGesture();
+        }
+    };
+    setNative(skellflang::RawFlangusPath::enabledId,1.f);
+    setNative("skellyRawExclusiveLegacy",0.f);
+    if(p.mode==6) {
+        // Distinct starting points for the native engine; preserve preset
+        // names/slots and all stored legacy values for old sessions.
+        static constexpr skellflang::rawsettings::State nativeBank[]{
+            {4,512,768,8,128,-32,96,96},
+            {7,700,820,12,112,-24,96,100},
+            {9,880,920,5,128,-48,96,104}};
+        const auto& native=nativeBank[std::clamp(number-7,0,2)];
+        for(std::size_t k=0;k<native.size();++k)
+            setNative(skellflang::RawFlangusPath::ids[k],float(native[k]));
     }
 #endif
     for(const auto& edit:edits)if(auto* value=parameters.getParameter(edit.id)){

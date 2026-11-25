@@ -37,6 +37,7 @@ public:
     void applyFactoryPreset(int);
 #if defined(SKELLFLANG_RAW_ENGINE)
     bool rawFlangusRequested() const noexcept;
+    bool rawFlangusExclusive() const noexcept;
     int rawEngineStatus() const noexcept {return rawStatus.load(std::memory_order_acquire);}
     void reset() override;
     skellflang::RawFlangusPath::State rawFlangusSettings() const noexcept;

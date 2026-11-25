@@ -1,12 +1,13 @@
 #pragma once
 #include "SkellFlangusAdapter.h"
 #include "RawFlangusSettings.h"
+#include "NativeLayerMix.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
 
 namespace skellflang {
-// Opt-in, independent full dry/wet path. Legacy mixer must not re-mix its output.
+// Native full dry/wet path. Replace the corresponding normalized rack contribution.
 class RawFlangusPath final {
 public:
     using Adapter=skell::private_research::FlangusAdapter;
@@ -53,14 +54,17 @@ public:
         validChunk=adapter.process(l.data(),r.data(),count);validCount=count;
     }
     std::array<float,2> blend(int offset,float inputL,float inputR,float legacyL,float legacyR,float output,float power) noexcept {
+        return blendLayer(offset,inputL,inputR,legacyL,legacyR,legacyL,legacyR,output,power,1.f);
+    }
+    std::array<float,2> blendLayer(int offset,float inputL,float inputR,float legacyL,float legacyR,
+        float legacyLayerL,float legacyLayerR,float output,float power,float fraction) noexcept {
         if(!validChunk||offset<0||offset>=validCount)return {legacyL,legacyR};
         rampPosition=target?std::min(rampLength,rampPosition+1):std::max(0,rampPosition-1);
         if(rampPosition==0||power<=0.f)return {legacyL,legacyR};
         const float nl=inputL*(1.f-power)+power*output*l[offset];
         const float nr=inputR*(1.f-power)+power*output*r[offset];
-        if(rampPosition==rampLength)return {nl,nr};
         const float amount=float(rampPosition)/float(rampLength);
-        return {legacyL+amount*(nl-legacyL),legacyR+amount*(nr-legacyR)};
+        return replaceNativeLayer({legacyL,legacyR},{legacyLayerL,legacyLayerR},{nl,nr},fraction,amount);
     }
 private:
     Adapter adapter;

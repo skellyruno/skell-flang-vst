@@ -838,7 +838,7 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
     const char* hints[]{
         "Multi-voice detuned stereo chorus",
         "Comb flanger with stereo phase modulation",
-        "Stacked chorus-flanger hybrid",
+        "Multi-voice Flangus",
         "Rotating stereo field with independent L/R",
         "Slow stereo doubler and dimensional widening"
     };
@@ -852,7 +852,7 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         addAndMakeVisible(button);
         button.onClick=[this,i,mode] {
 #if defined(SKELLFLANG_RAW_ENGINE)
-            if(processor.rawFlangusRequested()) {
+            if(processor.rawFlangusExclusive()) {
                 // Clicking the already active native tab must not silently
                 // switch to legacy Flangus.
                 if(mode==6){tabs[size_t(i)].setToggleState(true,juce::dontSendNotification);return;}
@@ -861,7 +861,7 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
                         p->beginChangeGesture();p->setValueNotifyingHost(p->convertTo0to1(value));p->endChangeGesture();
                     }
                 };
-                edit(skellflang::RawFlangusPath::enabledId,0.f);
+                edit("skellyRawExclusiveLegacy",0.f);
                 edit("mode",float(mode));edit("layerMode",0.f);
                 markPresetCustom();updateMode();return;
             }
@@ -962,7 +962,7 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         const auto selected=processor.parameters.state.getProperty("presetName","INIT").toString();
         menu.addItem(1,"INIT - Neutral Start",true,selected=="INIT");
         menu.addSeparator();
-        const char* groups[]{"CHORUS / ENSEMBLE","FLANGER / COMB","FLANGUS / HYBRID",
+        const char* groups[]{"CHORUS / ENSEMBLE","FLANGER / COMB","FLANGUS",
                              "ORBIT / SPATIAL","DIMENSION / DOUBLE"};
         const int offsets[]{1,4,7,10,13};
         for(int group=0;group<5;++group) {
@@ -996,9 +996,10 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         menu.addItem(66,"Enhanced Motion / Orbit (A/B)",true,enhanced&&enhanced->load(std::memory_order_relaxed)>.5f);
 #if defined(SKELLFLANG_RAW_ENGINE)
         menu.addSeparator();
-        menu.addSectionHeader("SKELLY RAW FLANGUS / TRIAL");
+        menu.addSectionHeader("FLANGUS SETTINGS");
         const auto* native=processor.parameters.getRawParameterValue(skellflang::RawFlangusPath::enabledId);
-        menu.addItem(60,"Native Flangus (exclusive)",true,native&&processor.rawFlangusRequested());
+        if(native&&native->load(std::memory_order_relaxed)<.5f)
+            menu.addItem(60,"Convert this saved session to native Flangus");
         menu.addItem(61,"Reset eight raw controls to defaults");
         menu.addItem(62,"Enter exact raw integers...");
         menu.addItem(63,"Import raw settings...");
@@ -1028,11 +1029,9 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
 #if defined(SKELLFLANG_RAW_ENGINE)
                 if(item==60) {
                     if(auto* v=safeEditor->processor.parameters.getParameter(skellflang::RawFlangusPath::enabledId)) {
-                        const bool enable=!safeEditor->processor.rawFlangusRequested();
-                        if(enable)if(auto* mode=safeEditor->processor.parameters.getParameter("mode")) {
-                            mode->beginChangeGesture();mode->setValueNotifyingHost(mode->convertTo0to1(6.f));mode->endChangeGesture();
-                        }
-                        v->beginChangeGesture();v->setValueNotifyingHost(enable?1.f:0.f);v->endChangeGesture();
+                        v->beginChangeGesture();v->setValueNotifyingHost(1.f);v->endChangeGesture();
+                        if(auto* old=safeEditor->processor.parameters.getParameter("skellyRawExclusiveLegacy"))
+                            old->setValueNotifyingHost(0.f);
                         safeEditor->markPresetCustom();safeEditor->updateMode();
                     }
                     return;
@@ -1249,17 +1248,18 @@ void SkellFlangAudioProcessorEditor::updateMode() {
 #if defined(SKELLFLANG_RAW_ENGINE)
     const bool unavailable=processor.rawFlangusRequested()&&processor.rawEngineStatus()==0;
     const bool native=processor.rawFlangusRequested()&&!unavailable;
+    const bool exclusive=processor.rawFlangusExclusive();
     const bool nativeChanged=native!=shownRaw||unavailable!=shownRawUnavailable;
     if(native!=shownRaw){shownRaw=native;bindRawControls(native);}
     shownRawUnavailable=unavailable;
 #else
-    constexpr bool native=false,nativeChanged=false;
+    constexpr bool native=false,nativeChanged=false,exclusive=false;
 #endif
     std::array<bool,5> layers{};
     for(size_t i=0;i<layers.size();++i) {
         const auto* enabled=processor.parameters.getRawParameterValue(
             SkellFlangAudioProcessor::layerParameterIDs[i]);
-        layers[i]=(legacy||native)?(visibleModes[i]==selected):
+        layers[i]=(legacy||exclusive)?(visibleModes[i]==selected):
                        (enabled&&enabled->load(std::memory_order_relaxed)>.5f);
     }
     // Factory presets and host state loads may not change the focused mode:
@@ -1273,7 +1273,7 @@ void SkellFlangAudioProcessorEditor::updateMode() {
     for(bool on:layers)if(on)++activeCount;
     // This is deliberately not enabled in legacy project mode. The button
     // only navigates among genuinely enabled audio engines in Layer Stack.
-    const bool canAdvance=!native&&!legacy&&activeCount>1;
+    const bool canAdvance=!exclusive&&!legacy&&activeCount>1;
     if(editNext.isVisible()!=canAdvance)
         editNext.setVisible(canAdvance);
     if(modeChanged)updateEditChevronBounds();
@@ -1555,7 +1555,7 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     }
     const auto* stackParam=processor.parameters.getRawParameterValue("layerMode");
     const bool stackEnabled=stackParam&&stackParam->load(std::memory_order_relaxed)>.5f;
-    const juce::String description=unavailable?juce::String("NATIVE UNAVAILABLE / LEGACY AUDIO (32-192 kHz REQUIRED)"):native?juce::String("NATIVE FLANGUS / EXCLUSIVE RAW ENGINE"):stackEnabled
+    const juce::String description=unavailable?juce::String("NATIVE UNAVAILABLE / LEGACY AUDIO (32-192 kHz REQUIRED)"):native?juce::String("FLANGUS / NATIVE ENGINE  |  ")+names:stackEnabled
         ? ("LAYERS  "+juce::String(count)+"/5     "+names)
         : ("LEGACY MODE  /  "+juce::String(modes[std::clamp(shownMode,0,7)]));
     g.setColour(glow.withAlpha(skin.themeIndex==2?.92f:.86f));
