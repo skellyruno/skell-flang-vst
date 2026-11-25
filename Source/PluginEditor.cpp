@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "FLPresetImport.h"
 #include <charconv>
 #include <algorithm>
 #include <cmath>
@@ -988,14 +989,14 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
 
         menu.addItem(61,"Reset eight raw controls to defaults");
         menu.addItem(62,"Enter exact raw integers...");
-        menu.addItem(63,"Import raw settings...");
+        menu.addItem(63,"Import FL preset / raw settings...");
         menu.addItem(64,"Export original 32-byte record...");
         menu.addItem(65,"Export SFLG v1...");
 #endif
         menu.addSeparator();
         menu.addSectionHeader("CHORUS SETTINGS");
         menu.addItem(67,"Reset native Chorus");
-        menu.addItem(68,"Import Chorus raw record...");
+        menu.addItem(68,"Import FL preset / Chorus raw record...");
         menu.addItem(69,"Export Chorus raw record...");
         menu.addSeparator();
         menu.addSectionHeader("WINDOW SIZE");
@@ -1216,7 +1217,7 @@ void SkellFlangAudioProcessorEditor::chooseRawFile(bool save,bool versioned) {
     if(rawFileChooser)return;
     const auto extension=versioned?".sflg":".bin";
     const auto initial=juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile(juce::String("Flangus")+extension);
-    rawFileChooser=std::make_unique<juce::FileChooser>(save?"Export native settings":"Import native settings",initial,save?juce::String("*")+extension:juce::String("*.bin;*.sflg"));
+    rawFileChooser=std::make_unique<juce::FileChooser>(save?"Export native settings":"Import native settings",initial,save?juce::String("*")+extension:juce::String("*.fst;*.bin;*.sflg"));
     juce::Component::SafePointer<SkellFlangAudioProcessorEditor> safe(this);
     const int flags=save?(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting):(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles);
     rawFileChooser->launchAsync(flags,[safe,save,versioned,extension](const juce::FileChooser& chooser) {
@@ -1237,10 +1238,19 @@ void SkellFlangAudioProcessorEditor::chooseRawFile(bool save,bool versioned) {
             }
             return;
         }
-        if(!file.hasFileExtension("bin;sflg")||file.getSize()>40){fail("Unsupported file. Import an exact 32-byte raw record or SFLG v1; full FST files are not supported.");return;}
+        const bool fst=file.hasFileExtension("fst");
+        if((!fst&&!file.hasFileExtension("bin;sflg"))||file.getSize()<=0||
+            file.getSize()>(fst?juce::int64(skellflang::flpreset::maximumBytes):40)){
+            fail("Unsupported file or size. Choose an FL .fst, 32-byte raw record or SFLG v1.");return;
+        }
         juce::MemoryBlock bytes;
         if(!file.loadFileAsData(bytes)){fail("Could not read settings.");return;}
         skellflang::rawsettings::State state{};
+        if(fst){
+            const auto status=skellflang::flpreset::decodeFlangus(bytes.getData(),bytes.getSize(),state);
+            if(status!=skellflang::flpreset::Error::none){fail(skellflang::flpreset::message(status));return;}
+            safe->applyRawSettings(state);return;
+        }
         const auto result=skellflang::rawsettings::decode(bytes.getData(),bytes.getSize(),state);
         if(!result) {
             juce::String reason(result.error);
@@ -1281,7 +1291,7 @@ void SkellFlangAudioProcessorEditor::applyClassicSettings(const skellflang::clas
 void SkellFlangAudioProcessorEditor::chooseClassicFile(bool save) {
     if(classicFileChooser)return;
     const auto initial=juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("Chorus.bin");
-    classicFileChooser=std::make_unique<juce::FileChooser>(save?"Export Chorus raw state":"Import Chorus raw state",initial,"*.bin");
+    classicFileChooser=std::make_unique<juce::FileChooser>(save?"Export Chorus raw state":"Import Chorus FL preset or raw state",initial,save?"*.bin":"*.fst;*.bin");
     juce::Component::SafePointer<SkellFlangAudioProcessorEditor> safe(this);
     const int flags=save?(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting):(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles);
     classicFileChooser->launchAsync(flags,[safe,save](const juce::FileChooser& chooser) {
@@ -1295,9 +1305,18 @@ void SkellFlangAudioProcessorEditor::chooseClassicFile(bool save) {
             if(!file.hasFileExtension("bin")||!skellflang::classicchorus::encode(safe->processor.classicChorusSettings(),record)||!file.replaceWithData(record.data(),record.size()))fail("Could not write the 52-byte Chorus raw record.");
             return;
         }
+        const bool fst=file.hasFileExtension("fst");
+        if((!fst&&!file.hasFileExtension("bin"))||file.getSize()<=0||
+            file.getSize()>(fst?juce::int64(skellflang::flpreset::maximumBytes):52)){
+            fail("Unsupported file or size. Choose an FL .fst or 52-byte Chorus record.");return;
+        }
         juce::MemoryBlock bytes;skellflang::classicchorus::State state{};
-        if(file.getSize()!=52||!file.loadFileAsData(bytes)||!skellflang::classicchorus::decode(bytes.getData(),bytes.getSize(),state)){
-            fail("Expected a 52-byte Chorus raw payload, not a full FST container.");return;
+        if(!file.loadFileAsData(bytes)){fail("Could not read settings.");return;}
+        if(fst){
+            const auto status=skellflang::flpreset::decodeChorus(bytes.getData(),bytes.getSize(),state);
+            if(status!=skellflang::flpreset::Error::none){fail(skellflang::flpreset::message(status));return;}
+        } else if(!skellflang::classicchorus::decode(bytes.getData(),bytes.getSize(),state)){
+            fail("Expected a valid 52-byte Chorus raw payload.");return;
         }
         safe->applyClassicSettings(state);
     });

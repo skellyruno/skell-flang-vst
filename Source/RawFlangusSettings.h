@@ -33,7 +33,7 @@ inline Result decode(const void* data,std::size_t size,State& out) noexcept {
         if(p[6]!=32||p[7]!=0||size!=40)return {"Invalid SFLG payload size"};
         p+=8;size-=8;
     }
-    if(size!=32)return {"Expected an exact 32-byte raw record or SFLG v1; full FST files are not supported"};
+    if(size!=32)return {"Expected an exact 32-byte raw record or SFLG v1"};
     State s{};
     for(std::size_t i=0;i<s.size();++i) {
         std::uint32_t u=0;for(unsigned j=0;j<4;++j)u|=std::uint32_t(p[4*i+j])<<(8*j);

@@ -25,8 +25,7 @@ inline State migrate(float depth,float speed,float delay,float spread) noexcept 
     result[5]=int(std::lround(5000.f*std::min(1.f,rate*1.4f)));
     return result;
 }
-// Verified raw payload contract only: LE version 1 (or 0) + 12 signed integers.
-// No claim to parse a full FL Studio FST container.
+// Native LE version 1 (or 0) + 12 integers. FLPresetImport.h validates the outer FST event envelope.
 using Record=std::array<std::uint8_t,52>;
 inline bool decode(const void* data,std::size_t n,State& state) noexcept {
     if(!data||n!=52)return false;
