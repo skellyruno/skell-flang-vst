@@ -60,6 +60,12 @@ jobs:
           $test = Get-ChildItem build -Recurse -File -Filter '*UiSmoke.exe' | Select-Object -First 1
           & $test.FullName --native --no-capture
           if ($LASTEXITCODE -ne 0) { throw "Native Flangus host validation failed ($LASTEXITCODE)" }
+      - name: Monitor CPU and concurrent editor close/switch stress
+        shell: pwsh
+        run: |
+          $test = Get-ChildItem build -Recurse -File -Filter '*UiSmoke.exe' | Select-Object -First 1
+          & $test.FullName --monitor
+          if ($LASTEXITCODE -ne 0) { throw "Recording stability validation failed ($LASTEXITCODE)" }
       - name: Host and editor validation (pluginval)
         uses: Tracktion/pluginval/validate@v2.0.0-beta3
         with:

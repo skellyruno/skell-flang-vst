@@ -7,6 +7,11 @@
 #include <iostream>
 #include <memory>
 #include <stdexcept>
+#include <thread>
+#include <chrono>
+#include <vector>
+#include <atomic>
+#include <algorithm>
 
 namespace {
 void verify(bool ok,const char* message) {
@@ -32,13 +37,14 @@ void doubleClick(juce::TextButton* b,const char* error){
 }
 
 int main(int argc,char** argv){
-    bool full=false,nativeOnly=false,noCapture=false;
+    bool full=false,nativeOnly=false,noCapture=false,monitorOnly=false;
     juce::String capturePath="build/ui-smoke";
     for(int i=1;i<argc;++i){
         const juce::String arg(argv[i]);
         if(arg=="--full")full=true;
         else if(arg=="--native")nativeOnly=true;
         else if(arg=="--no-capture")noCapture=true;
+        else if(arg=="--monitor")monitorOnly=true;
         else if(arg=="--output" && i+1<argc)capturePath=argv[++i];
         else {std::cerr<<"Unknown Quick4 argument: "<<arg.toStdString()<<"\n";return 2;}
     }
@@ -49,6 +55,76 @@ int main(int argc,char** argv){
         std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
         verify(editor!=nullptr,"Actual editor was not created");
         editor->setVisible(true);
+        if(monitorOnly) {
+            using Clock=std::chrono::steady_clock;
+            auto set=[&](const char* id,float value) {
+                auto* q=processor.parameters.getParameter(id);
+                verify(q!=nullptr,"Missing host stress parameter");
+                q->setValueNotifyingHost(q->convertTo0to1(value));
+            };
+            // Measure actual processor callback wall time, not just isolated
+            // DSP loops. Runner timings are diagnostics, not FL Studio data.
+            for(double sr:{44100.,48000.,96000.,192000.})for(int size:{64,128,512}) {
+                for(int count:{1,4,5}) {
+                    processor.applyFactoryPreset(0);
+                    set("order",8);
+                    for(std::size_t j=0;j<SkellFlangAudioProcessor::layerParameterIDs.size();++j)
+                        set(SkellFlangAudioProcessor::layerParameterIDs[j],int(j)<count?1.f:0.f);
+                    processor.prepareToPlay(sr,size);
+                    juce::AudioBuffer<float> audio(2,size);juce::MidiBuffer midi;
+                    std::vector<double> times;times.reserve(160);
+                    for(int block=0;block<180;++block) {
+                        for(int i=0;i<size;++i){
+                            const auto tick=double(block*size+i);
+                            audio.setSample(0,i,.21f*float(std::sin(tick*.051)));
+                            audio.setSample(1,i,.18f*float(std::sin(tick*.079)));
+                        }
+                        auto begin=Clock::now();processor.processBlock(audio,midi);
+                        const double budget=100.*std::chrono::duration<double>(Clock::now()-begin).count()*sr/size;
+                        if(block>=20)times.push_back(budget);
+                        for(int ch=0;ch<2;++ch)for(int i=0;i<size;++i)
+                            verify(std::isfinite(audio.getSample(ch,i)),"Nonfinite monitoring output");
+                    }
+                    std::sort(times.begin(),times.end());
+                    double mean=0.;for(double t:times)mean+=t/double(times.size());
+                    std::cout<<"Host CPU "<<sr<<" Hz / "<<size<<" samples / "<<count<<" layers: mean "<<mean
+                        <<"% p95 "<<times[(times.size()*95)/100]<<"% peak "<<times.back()<<"%\n";
+                    verify(processor.getLatencySamples()==0,"Monitoring unexpectedly reports PDC");
+                }
+            }
+            processor.applyFactoryPreset(0);processor.prepareToPlay(48000.,64);
+            std::atomic<bool> quit{false},bad{false};
+            std::atomic<unsigned> blocks{0};
+            std::thread audioThread([&]{
+                juce::AudioBuffer<float> audio(2,64);juce::MidiBuffer midi;
+                while(!quit.load(std::memory_order_acquire)) {
+                    for(int i=0;i<64;++i){audio.setSample(0,i,.2f);audio.setSample(1,i,-.13f);}
+                    processor.processBlock(audio,midi);
+                    for(int i=0;i<64;++i)if(!std::isfinite(audio.getSample(0,i))||!std::isfinite(audio.getSample(1,i)))bad.store(true);
+                    blocks.fetch_add(1,std::memory_order_relaxed);
+                    std::this_thread::sleep_for(std::chrono::microseconds(500));
+                }
+            });
+            struct StopAudio {
+                std::atomic<bool>& stop;std::thread& thread;
+                ~StopAudio(){stop.store(true,std::memory_order_release);if(thread.joinable())thread.join();}
+            } stopAudio{quit,audioThread};
+            for(int round=0;round<16;++round){
+                for(const auto* name:{"CHORUS","FLANGER","FLANGUS","ORBIT","DIMENSION"})
+                    click(findButton(*editor,name),"Effect switch failed during concurrent audio");
+                for(const auto* name:{"CHORUS","FLANGER","FLANGUS","ORBIT"})
+                    doubleClick(findButton(*editor,name),"Layer toggle failed during concurrent audio");
+                editor.reset();
+                editor.reset(processor.createEditor());
+                verify(editor!=nullptr,"Editor reopening failed");
+                editor->setVisible(true);
+            }
+            editor.reset();
+            quit.store(true,std::memory_order_release);audioThread.join();
+            verify(blocks.load()>0&&!bad.load(),"Audio/editor concurrent stress failed");
+            std::cout<<"16 editor teardown/reopen cycles, "<<blocks.load()<<" audio blocks; monitoring stress passed\n";
+            return 0;
+        }
         // Quick4 captures the *actual* JUCE component tree offscreen, like
         // Mini/Master: no X11 desktop peer (some Linux/Xvfb stacks reject the
         // X_ChangeProperty atom). The full legacy host test still uses a peer.
