@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "FlangDSP.h"
+#include "NativeClassicChorusPath.h"
 #if defined(SKELLFLANG_RAW_ENGINE)
 #include "SkellRawFlangusPath.h"
 #endif
@@ -35,6 +36,8 @@ public:
     void getStateInformation(juce::MemoryBlock&) override;
     void setStateInformation(const void*,int) override;
     void applyFactoryPreset(int);
+    skellflang::classicchorus::State classicChorusSettings() const noexcept;
+    int classicChorusStatus() const noexcept {return classicStatus.load(std::memory_order_acquire);}
 #if defined(SKELLFLANG_RAW_ENGINE)
     bool rawFlangusRequested() const noexcept;
     bool rawFlangusExclusive() const noexcept;
@@ -64,6 +67,8 @@ private:
     float raw(const char*) const noexcept;
     skellflang::Controls settings(int mode) const noexcept;
     skellflang::EngineBank engines;
+    skellflang::NativeClassicChorusPath classicChorus;
+    std::atomic<int> classicStatus{-1};
 #if defined(SKELLFLANG_RAW_ENGINE)
     skellflang::RawFlangusPath rawFlangus;
     // -1: not prepared, 0: unsupported/failed, 1: ready.

@@ -17,6 +17,10 @@ jobs:
         env:
           NATIVE_SOURCE_B64: ${{ secrets.SKELL_FLANGUS_SOURCE_B64 }}
         run: python tools/install_native_dependency.py --required
+      - name: Install authorized private Classic Chorus dependency
+        env:
+          CHORUS_SOURCE_B64: ${{ secrets.SKELL_CHORUS_SOURCE_B64 }}
+        run: python tools/install_classic_dependency.py --required
       - name: Configure
         run: cmake -S . -B build -A x64 -DSKELLFLANG_BUILD_UI_SMOKE=ON
       - name: Build
@@ -82,6 +86,10 @@ jobs:
         env:
           NATIVE_SOURCE_B64: ${{ secrets.SKELL_FLANGUS_SOURCE_B64 }}
         run: python tools/install_native_dependency.py
+      - name: Install authorized private Classic Chorus dependency
+        env:
+          CHORUS_SOURCE_B64: ${{ secrets.SKELL_CHORUS_SOURCE_B64 }}
+        run: python tools/install_classic_dependency.py
       - name: Configure DSP tests
         run: cmake -S tests -B build-dsp -DCMAKE_BUILD_TYPE=Release
       - name: Build DSP tests
@@ -98,6 +106,10 @@ jobs:
         env:
           NATIVE_SOURCE_B64: ${{ secrets.SKELL_FLANGUS_SOURCE_B64 }}
         run: python tools/install_native_dependency.py
+      - name: Install authorized private Classic Chorus dependency
+        env:
+          CHORUS_SOURCE_B64: ${{ secrets.SKELL_CHORUS_SOURCE_B64 }}
+        run: python tools/install_classic_dependency.py
       - name: Configure address and undefined behavior sanitizers
         run: cmake -S tests -B build-san -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
       - name: Build sanitized tests

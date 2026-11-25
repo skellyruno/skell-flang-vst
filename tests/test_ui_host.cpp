@@ -286,7 +286,7 @@ int main(int argc,char** argv){
         verify(depth && bool(depth->onDragStart) && bool(depth->onDragEnd),
                "Depth fader is missing its user-edit callbacks");
         depth->onDragStart();
-        depth->setValue(depth->getValue()+.09,juce::sendNotificationSync);
+        depth->setValue(depth->getValue()+100.,juce::sendNotificationSync);
         depth->onDragEnd();
         verify(preset->getButtonText()=="CUSTOM" &&
                processor.parameters.state.getProperty("presetName")=="CUSTOM",
@@ -294,6 +294,8 @@ int main(int argc,char** argv){
         legacyPreset(0);
         verify(processor.parameters.state.getProperty("presetName")=="INIT",
                "Reloading factory preset did not restore its name");
+        legacyPreset(4);
+        click(skull,"Refresh Flanger tone controls");
         auto* tone=dynamic_cast<juce::Slider*>(
             editor->findChildWithID("tone-1"));
         verify(tone && bool(tone->onDragStart)&&bool(tone->onDragEnd),
@@ -317,7 +319,7 @@ int main(int argc,char** argv){
                "Skull click did not actually change the interface background");
         verify(look->accent==initialAccent,
                "Skull theme click incorrectly changed the effect identity accent");
-        verify(wave->isVisible(),"Skull theme changed WAVE visibility");
+        verify(!wave->isVisible()&&!sync->isVisible(),"Classic Chorus must hide unsupported Wave/Sync controls");
         // The four advanced character parameters must be selectable without
         // drawing seven simultaneous rotary knobs. Every original APVTS dial
         // remains instantiated and available to the DAW automation system.
@@ -348,6 +350,31 @@ int main(int argc,char** argv){
                "Theme switching changed the selected macro");
         click(macroSelectors[0],"Cannot restore default macro selector");
 
+        // Native Chorus attachments and solo host-vs-engine parity.
+        const std::array<const char*,8> classicFaders{{"fader-order","fader-depth","fader-speed","fader-delay","fader-spread","fader-cross","fader-dry","fader-wet"}};
+        for(std::size_t k=0;k<classicFaders.size();++k) {
+            auto* slider=dynamic_cast<juce::Slider*>(editor->findChildWithID(classicFaders[k]));
+            verify(slider&&slider->isVisible()&&slider->getMaximum()==skellflang::classicchorus::maximum[k],"Wrong native Chorus fader binding");
+            verify(slider->getValue()==processor.classicChorusSettings()[k],"Wrong native Chorus raw value");
+        }
+        for(std::size_t k=0;k<4;++k) {
+            click(macroSelectors[k],"Cannot select Chorus contextual parameter");
+            verify(macroDials[k]->isVisible()&&macroDials[k]->getMaximum()==skellflang::classicchorus::maximum[k+8],"Wrong native Chorus macro binding");
+        }
+        processor.applyFactoryPreset(0);processor.prepareToPlay(48000.,512);
+        skelly::fruitychorusfx::Engine direct;direct.setRate(48000);direct.load(processor.classicChorusSettings());direct.reset();
+        juce::AudioBuffer<float> chorusAudio(2,512);juce::MidiBuffer chorusMidi;
+        std::array<float,1024> directIn{},directOut{};
+        for(int block=0;block<32;++block) {
+            for(int i=0;i<512;++i)for(int ch=0;ch<2;++ch){
+                const float x=.2f*float(std::sin((block*512+i)*(ch?.071:.051)));
+                directIn[2*i+ch]=x;chorusAudio.setSample(ch,i,x);
+            }
+            direct.render(directIn.data(),directOut.data(),512);
+            processor.processBlock(chorusAudio,chorusMidi);
+            for(int i=0;i<512;++i)for(int ch=0;ch<2;++ch)
+                verify(std::abs(chorusAudio.getSample(ch,i)-directOut[2*i+ch])<1.e-6f,"Host Classic Chorus did not match native reference");
+        }
         // A factory preset must update the engine AND the character controls.
         legacyPreset(7);
         verify(int(processor.parameters.getRawParameterValue("mode")->load())==6,
@@ -407,7 +434,7 @@ int main(int argc,char** argv){
         options.scenes.push_back(
             {"Skell-Flang-540-chorus-all-five",540,375,0,0,true});
         options.scenes.push_back(
-            {"Skell-Flang-720-chorus-sync",720,500,0,0,false});
+            {"Skell-Flang-720-chorus-wet-only",720,500,0,0,false});
         // Compare the next-edit switcher and the shortcut focus on the same
         // two enabled engines. Actual JUCE renders must show distinct focus.
         options.scenes.push_back(
@@ -484,9 +511,9 @@ int main(int argc,char** argv){
                        processor.parameters.getRawParameterValue("layerFlanger")->load()>.5f,
                        "Edit focus muted the layered audio during screenshot");
             }
-            if(scene.id.endsWith("-sync"))
-                if(auto* p=processor.parameters.getParameter("lfoSync"))
-                    p->setValueNotifyingHost(p->convertTo0to1(1.f));
+            if(scene.id.endsWith("-wet-only"))
+                if(auto* p=processor.parameters.getParameter("nativeChorusWetOnly"))
+                    p->setValueNotifyingHost(p->convertTo0to1(1024.f));
             // Three skull clicks force a refresh even when target theme is
             // already correct (the preset is applied by the host).
             for(int i=0;i<3;++i)
@@ -517,6 +544,7 @@ int main(int argc,char** argv){
             if(scene.id.contains("-macro"))
                 selectedMacro=juce::jlimit(0,3,scene.id.fromLastOccurrenceOf(
                     "-macro",false,false).getIntValue());
+            if(scene.id.endsWith("-wet-only"))selectedMacro=3;
             if(expectedMode==6) {
                 verify(!wave->isVisible()&&!sync->isVisible(),"Native irrelevant controls visible");
                 // Keep the four existing diagnostic scene IDs but vary native
@@ -530,7 +558,7 @@ int main(int argc,char** argv){
             } else {
                 click(macroSelectors[size_t(selectedMacro)],"Cannot select macro");
                 verify(macroDials[size_t(selectedMacro)]->isVisible(),"Wrong macro dial visibility");
-                verify(wave->isVisible()&&sync->isVisible(),"Signal wave or header sync control hidden");
+                verify(wave->isVisible()==(expectedMode!=0)&&sync->isVisible()==(expectedMode!=0),"Wrong waveform/sync visibility");
             }
         };
         options.inspect=[&]{
@@ -547,7 +575,8 @@ int main(int argc,char** argv){
                 ++count;
             }
             const bool native=processor.rawFlangusRequested();
-            if(count<(native?15:23))errors.add("Too few visible controls");
+            const bool classic=int(processor.parameters.getRawParameterValue("mode")->load())==0;
+            if(count<(native?15:classic?19:23))errors.add("Too few visible controls");
             if(editNext->isVisible()) {
                 const float scale=editor->getWidth()/720.f;
                 const int focused=int(processor.parameters
@@ -618,7 +647,7 @@ int main(int argc,char** argv){
             if(shownDials!=(native?0:1))errors.add("Wrong character dial count");
             for(auto* btn:macroSelectors)
                 if(btn->isVisible()==native)errors.add("Wrong character selector visibility");
-            if(!native&&wave->getSelectedId()==0)
+            if(!native&&!classic&&wave->getSelectedId()==0)
                 errors.add("Waveform selection is blank");
             // All interactive controls must have independent, non-overlapping
             // mouse hit areas, even at the compact 540 px editor width.
@@ -647,7 +676,7 @@ int main(int argc,char** argv){
             {"Skell-Flang-720-chorus-stacked","Skell-Flang-720-chorus-edit-flanger"},
             {"Skell-Flang-720-chorus-stacked","Skell-Flang-720-chorus-edit-next"},
             {"Skell-Flang-720-dimension-solo","Skell-Flang-720-dimension-focus"},
-            {"Skell-Flang-720-chorus-solo","Skell-Flang-720-chorus-sync"},
+            {"Skell-Flang-720-chorus-solo","Skell-Flang-720-chorus-wet-only"},
             {"Skell-Flang-540-flanger-solo","Skell-Flang-540-flangus-solo"},
             {"Skell-Flang-540-orbit-solo","Skell-Flang-540-dimension-solo"},
             {"Skell-Flang-720-chorus-solo","Skell-Flang-720-chorus-graphite"},

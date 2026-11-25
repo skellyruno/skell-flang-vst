@@ -35,7 +35,7 @@ int main(){
     const auto baseline=newCalls.load(std::memory_order_relaxed);
     double accumulated=0.;
     for(int mode=0;mode<8;++mode) {
-        if(mode==6)continue;
+        if(mode==0||mode==6)continue;
         for(int i=0;i<20000;++i) {
             // Stress jumps every 97 samples, extreme feedback signs and
             // arbitrary mode-specific macros under sustained signal.
@@ -60,7 +60,7 @@ int main(){
     for(int i=0;i<32768;++i){
         p.feedback=i%2?-.9f:.9f;
         const float x=float(.2*std::sin(2*pi*330.*i/48000.));
-        const auto a=bank.process(0,x,x,p);
+        const auto a=bank.process(1,x,x,p);
         const auto b=bank.process(7,x,x,p);
         const auto gains=blend.gains(float(i%101)/100.f);
         const float l=a[0]*gains[0]+b[0]*gains[1];
@@ -74,6 +74,6 @@ int main(){
         return 3;
     }
     if(!(accumulated>0.01&&std::isfinite(accumulated)))return 4;
-    std::puts("Seven rack modes + morph (native tested separately): zero C++ new calls, bounded finite outputs");
+    std::puts("Six rack modes + morph (native tested separately): zero C++ new calls, bounded finite outputs");
     return 0;
 }

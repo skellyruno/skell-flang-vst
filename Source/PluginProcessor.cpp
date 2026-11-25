@@ -56,10 +56,15 @@ State::ParameterLayout SkellFlangAudioProcessor::createLayout(){
             skell::flangusfx::rawMin[k],skell::flangusfx::rawMax[k],skell::flangusfx::defaults[k]));
     }
 #endif
-    boolean(p,"enhancedMotion","Enhanced Motion (Chorus / Flanger / Dimension)",false);
+    boolean(p,"enhancedMotion","Enhanced Motion (Flanger / Dimension)",false);
 #if defined(SKELLFLANG_RAW_ENGINE)
     boolean(p,"skellyRawExclusiveLegacy","Recall older exclusive native session",false);
 #endif
+    for(std::size_t k=0;k<skellflang::classicchorus::ids.size();++k)
+        p.add(std::make_unique<juce::AudioParameterInt>(
+            PID{skellflang::classicchorus::ids[k],1},
+            juce::String("Chorus ")+skellflang::classicchorus::names[k],0,
+            skellflang::classicchorus::maximum[k],skellflang::classicchorus::defaults[k]));
     return p;
 }
 SkellFlangAudioProcessor::SkellFlangAudioProcessor()
@@ -76,6 +81,9 @@ bool SkellFlangAudioProcessor::isBusesLayoutSupported(const BusesLayout& l)const
 void SkellFlangAudioProcessor::prepareToPlay(double sr,int) {
     rate=std::max(8000.0,sr);
     engines.prepare(rate);pitchTracker.prepare(rate);crossfade.prepare();
+    const bool chorusActive=raw("layerMode")>.5f?raw("layerChorus")>.5f:
+        (int(raw("mode"))==0||(int(raw("morphTarget"))==0&&raw("morph")>0.f));
+    classicStatus.store(classicChorus.prepare(sr,classicChorusSettings(),chorusActive)?1:0,std::memory_order_release);
 #if defined(SKELLFLANG_RAW_ENGINE)
     const bool nativeActive=rawFlangusExclusive() || (raw("layerMode")>.5f && raw("layerFlangus")>.5f) || (raw("layerMode")<.5f && (int(raw("mode"))==6 || (int(raw("morphTarget"))==6&&raw("morph")>0.f)));
     const bool prepared=rawFlangus.prepare(sr,rawFlangusSettings(),nativeActive);
@@ -111,8 +119,16 @@ float SkellFlangAudioProcessor::raw(const char* id)const noexcept {
     const auto* v=parameters.getRawParameterValue(id);
     return v?v->load(std::memory_order_relaxed):0;
 }
+skellflang::classicchorus::State SkellFlangAudioProcessor::classicChorusSettings() const noexcept {
+    auto s=skellflang::classicchorus::defaults;
+    for(std::size_t k=0;k<s.size();++k) {
+        const float v=raw(skellflang::classicchorus::ids[k]);
+        if(std::isfinite(v))s[k]=int(std::lround(std::clamp(v,0.f,float(skellflang::classicchorus::maximum[k]))));
+    }
+    return s;
+}
 #if defined(SKELLFLANG_RAW_ENGINE)
-void SkellFlangAudioProcessor::reset() {rawFlangus.reset();}
+void SkellFlangAudioProcessor::reset() {rawFlangus.reset();classicChorus.reset();}
 bool SkellFlangAudioProcessor::rawFlangusRequested()const noexcept {
     return int(raw("mode"))==6;
 }
@@ -176,6 +192,9 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
     float peakL=0,peakR=0;
     auto* left=buffer.getWritePointer(0);
     auto* right=channels>1?buffer.getWritePointer(1):nullptr;
+    const bool wantsClassic=(layered&&(raw("layerChorus")>.5f||layerGains[0].getCurrentValue()>0.f||fallbackLayer==0))||
+        (!layered&&(active==0||(target==0&&(requestedMorph>0.f||morphMix.getCurrentValue()>0.f))||(previous==0&&remaining>0)));
+    classicChorus.beginBlock(wantsClassic,classicChorusSettings());
 #if defined(SKELLFLANG_RAW_ENGINE)
     const bool exclusiveNative=rawFlangusExclusive();
     const bool wantsNative=exclusiveNative || (layered &&
@@ -200,6 +219,8 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
         else if(midEnergy>sideEnergy*1.2) pitchFromSide=false;
     }
     for(int i=0;i<length;++i) {
+        if(i%skellflang::NativeClassicChorusPath::chunkSize==0)
+            classicChorus.renderChunk(left+i,right?right+i:nullptr,std::min(skellflang::NativeClassicChorusPath::chunkSize,length-i));
 #if defined(SKELLFLANG_RAW_ENGINE)
         if(i%skellflang::RawFlangusPath::chunkSize==0)
             rawFlangus.renderChunk(left+i,right?right+i:nullptr,
@@ -211,6 +232,7 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
             pitchTracker.push(.5f*(a+(pitchFromSide?-b:b)));
         const float cross=crossMix.getNextValue();
         std::array<float,2> wet{};
+        float classicFraction=0.f;
 #if defined(SKELLFLANG_RAW_ENGINE)
         float nativeFraction=0.f;
 #endif
@@ -231,6 +253,7 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
                     effect=skellflang::stereoCrossfeed(effect[0],effect[1],cross);
 #if defined(SKELLFLANG_RAW_ENGINE)
                 if(mode==6)nativeFraction=gain;
+                if(mode==0)classicFraction=gain;
 #endif
                 wet[0]+=gain*effect[0];
                 wet[1]+=gain*effect[1];
@@ -240,6 +263,7 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
                 wet[0]/=sum;wet[1]/=sum;
 #if defined(SKELLFLANG_RAW_ENGINE)
                 nativeFraction/=sum;
+                classicFraction/=sum;
 #endif
             } else {
                 auto controls=controlSmoothers[size_t(fallbackLayer)].next(
@@ -249,6 +273,7 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
                     wet=skellflang::stereoCrossfeed(wet[0],wet[1],cross);
 #if defined(SKELLFLANG_RAW_ENGINE)
                 if(fallbackLayer==6)nativeFraction=1.f;
+                if(fallbackLayer==0)classicFraction=1.f;
 #endif
             }
             // Preserve the stored legacy morph parameter but do not apply it
@@ -260,6 +285,7 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
             wet=engines.process(active,a,b,main);
 #if defined(SKELLFLANG_RAW_ENGINE)
             nativeFraction=active==6?1.f:0.f;
+            classicFraction=active==0?1.f:0.f;
 #endif
             const float amount=morphMix.getNextValue();
             std::array<float,2> alternate{};
@@ -272,6 +298,7 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
                 const auto gains=crossfade.gains(amount);
 #if defined(SKELLFLANG_RAW_ENGINE)
                 nativeFraction=(active==6?gains[0]:0.f)+(target==6?gains[1]:0.f);
+                classicFraction=(active==0?gains[0]:0.f)+(target==0?gains[1]:0.f);
 #endif
                 wet={wet[0]*gains[0]+alternate[0]*gains[1],
                      wet[1]*gains[0]+alternate[1]*gains[1]};
@@ -286,6 +313,7 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
                     const auto gains=crossfade.gains(t);
 #if defined(SKELLFLANG_RAW_ENGINE)
                     nativeFraction=(previous==6?gains[0]:0.f)+nativeFraction*gains[1];
+                    classicFraction=(previous==0?gains[0]:0.f)+classicFraction*gains[1];
 #endif
                     wet={previousOut[0]*gains[0]+wet[0]*gains[1],
                          previousOut[1]*gains[0]+wet[1]*gains[1]};
@@ -307,6 +335,12 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
         // dry mix with the native full signal, including signed dry/wet.
         const float oldL=a*(1-power)+power*output*dry*a;
         const float oldR=b*(1-power)+power*output*dry*b;
+        // Native engines have full dry/wet output, so normalize full-signal
+        // shares in a legacy equal-power morph without double-counting dry.
+        const float nativeSum=std::max(1.f,classicFraction+nativeFraction);
+        classicFraction/=nativeSum;nativeFraction/=nativeSum;
+        const auto classic=classicChorus.blend(i%skellflang::NativeClassicChorusPath::chunkSize,a,b,l,r,oldL,oldR,output,power,classicFraction);
+        l=classic[0];r=classic[1];
         const auto mixed=exclusiveNative
             ? rawFlangus.blend(rawIndex,a,b,l,r,output,power)
             : rawFlangus.blendLayer(rawIndex,a,b,l,r,oldL,oldR,output,power,nativeFraction);
@@ -343,6 +377,7 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
 }
 void SkellFlangAudioProcessor::getStateInformation(juce::MemoryBlock& m) {
     auto state=parameters.copyState();
+    state.setProperty("classicChorusVersion",1,nullptr);
 #if defined(SKELLFLANG_RAW_ENGINE)
     state.setProperty("rawRoutingVersion",3,nullptr);
 #endif
@@ -367,6 +402,15 @@ void SkellFlangAudioProcessor::setStateInformation(const void* ptr,int size) {
                 tree.appendChild(child,nullptr);
             };
             addMissing("enhancedMotion",0.f);
+            const auto oldValue=[&](const char* id,float fallback) {
+                const auto child=tree.getChildWithProperty("id",id);
+                const float v=child.isValid()?float(child.getProperty("value")):fallback;
+                return std::isfinite(v)?v:fallback;
+            };
+            const auto classicState=skellflang::classicchorus::migrate(oldValue("depth",.45f),oldValue("speed",.5f),oldValue("delay",.5f),oldValue("spread",.5f));
+            for(std::size_t k=0;k<classicState.size();++k)
+                addMissing(skellflang::classicchorus::ids[k],float(classicState[k]));
+            tree.setProperty("classicChorusVersion",1,nullptr);
 #if defined(SKELLFLANG_RAW_ENGINE)
             // Older algorithm sessions migrate by mapping their normalized
             // controls once. Preserve exact raw settings in former native trials.
@@ -481,6 +525,14 @@ void SkellFlangAudioProcessor::applyFactoryPreset(int number) {
         value->beginChangeGesture();
         value->setValueNotifyingHost(value->convertTo0to1(edit.value));
         value->endChangeGesture();
+    }
+    if(p.mode==0) {
+        const auto s=number==0?skellflang::classicchorus::defaults:
+            skellflang::classicchorus::migrate(p.depth,p.speed,p.delay,p.spread);
+        for(std::size_t k=0;k<s.size();++k)
+            if(auto* q=parameters.getParameter(skellflang::classicchorus::ids[k])) {
+                q->beginChangeGesture();q->setValueNotifyingHost(q->convertTo0to1(float(s[k])));q->endChangeGesture();
+            }
     }
     parameters.state.setProperty("presetName",p.name,nullptr);
 }

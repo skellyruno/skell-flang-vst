@@ -46,6 +46,11 @@ private:
     void timerCallback() override;
     void updateMode();
     void updateMacroSelection();
+    void bindClassicMacros(bool);
+    void chooseClassicFile(bool);
+    void applyClassicSettings(const skellflang::classicchorus::State&);
+    bool shownChorus=false,shownChorusUnavailable=false;
+    std::unique_ptr<juce::FileChooser> classicFileChooser;
     void updateEditChevronBounds();
     void markPresetCustom();
 #if defined(SKELLFLANG_RAW_ENGINE)

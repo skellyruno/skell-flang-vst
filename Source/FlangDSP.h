@@ -1,4 +1,5 @@
 #pragma once
+#include "RateMatchedMotion.h"
 // Skell-Flang DSP: allocation is limited to prepare(), never the sample callback.
 #include <algorithm>
 #include <array>
@@ -233,16 +234,17 @@ class EngineBank {
             fbAlpha=float(1.-std::exp(-1./(std::max(8000.,sr)*.008)));
         }
         float tap(int ch,float input,double delaySamples,const Controls& p,
-                  float transparentInput=0.f) noexcept {
+                  float transparentInput=0.f,float toneOverride=-1.f,float dcPole=.995f) noexcept {
             // 3.5 ms one-pole slew prevents fractional-delay zippering on
             // sudden automation while preserving normal chorus/flanger motion.
             const double goal=std::isfinite(delaySamples)?std::max(3.,delaySamples):3.;
             if(!lagReady[ch]){lag[ch]=goal;lagReady[ch]=true;}
             else lag[ch]+=lagAlpha*(goal-lag[ch]);
             const float d=delay[ch].read(lag[ch]);
-            const float hp=d-dcx[ch]+.995f*dcy[ch];
+            const float hp=d-dcx[ch]+dcPole*dcy[ch];
             dcx[ch]=d;dcy[ch]=hp;
-            low[ch]+=(.035f+.86f*bound(p.tone))*(hp-low[ch]);
+            const float coefficient=toneOverride>=0.f?toneOverride:(.035f+.86f*bound(p.tone));
+            low[ch]+=coefficient*(hp-low[ch]);
             // Feedback automation is independent of tap-time smoothing.
             fb[ch]+=(bound(p.feedback,-.9f,.9f)-fb[ch])*fbAlpha;
             // The old chorus/flanger path tanh-processed the whole input on
@@ -264,8 +266,9 @@ class EngineBank {
     struct Grain {bool active=false;int age=0,duration=1,voice=0;double start=0;};
 public:
     void prepare(double sampleRate) {
-        sr=std::max(8000.0,sampleRate);
-        for(auto& mode:voices)for(auto& v:mode)v.prepare(sr);
+        sr=std::max(8000.0,sampleRate);rateMatched.prepare(sr);
+        for(std::size_t mode=0;mode<voices.size();++mode)
+            if(mode!=0&&mode!=6)for(auto& v:voices[mode])v.prepare(sr);
         for(auto& d:reverse)d.prepare(sr,1.5);
         for(size_t i=0;i<reverseWindow.size();++i){
             const double t=double(i)/double(reverseWindow.size()-1u);
@@ -274,12 +277,12 @@ public:
         keyCacheRoot=-1;keyCacheScale=-1;cachedSpread=-1.;
         tunedRatio=1.;
         for(auto& pair:formants)for(auto& f:pair)f={};
-        grains={};phase.fill(0);continuousPhase.fill(0);flangerEnvelope=0.f;voicePhase.fill(0);tunedDelay.fill(0);samples.fill(0);grainClock=0;rng=0xFA11B00Du;
+        grains={};phase.fill(0);continuousPhase.fill(0);flangerEnvelope=0.f;tunedDelay.fill(0);samples.fill(0);grainClock=0;rng=0xFA11B00Du;
     }
     std::array<float,2> process(int which,float l,float r,const Controls& p) noexcept {
         const int mode=std::clamp(which,0,7);
         // Slot 6 is owned exclusively by the native full-mix engine.
-        if(mode==6)return {0.f,0.f};
+        if(mode==0||mode==6)return {0.f,0.f};
         const int n=std::clamp(p.order,1,8);
         const double hz=lfoFrequency(p);
         const double step=std::min((mode==4?hz*(.5+.9*bound(p.extras[3])):hz)/sr,.2);
@@ -315,6 +318,13 @@ public:
             }
         };
         float outL=0,outR=0;
+        // Optional Hyper/Vintage-inspired refinements: one set of matched
+        // coefficients per frame, not per voice; preserve legacy q=0 exactly.
+        const bool matched=quality>0.f&&(mode==1||mode==7);
+        const float feedbackTone=mode==1?bound(p.tone+(p.extras[1]-.5f)*.40f):bound(p.tone);
+        const float matchedTone=matched?rateMatched.coefficient(.035f+.86f*feedbackTone,quality):-1.f;
+        const float matchedDc=matched?rateMatched.dc(quality):.995f;
+        const float matchedDimensionTone=mode==7?rateMatched.coefficient(.12f+.75f*bound(p.extras[2]),quality):0.f;
         if(mode==3)return processReverse(l,r,p,n);
         if(mode==2) {
             // Five original, approximate vowel resonances. No third-party phonetic table.
@@ -387,32 +397,7 @@ public:
         }
         for(int i=0;i<n;++i) {
             auto& v=voices[size_t(mode)][size_t(i)];
-            if(mode==0) { // CHORUS: decorrelated dual-channel multi-voice detuning
-                const float location=n>1 ? float(i)*2.f/float(n-1)-1.f : 0.f;
-                voicePhase[size_t(i)]+=step*(1.+.055*bound(p.extras[0])*location);
-                if(voicePhase[size_t(i)]>=1.)voicePhase[size_t(i)]-=1.;
-                const double phaseOffset=double(i)*.173;
-                const double leftWave=std::sin(2*pi*(voicePhase[size_t(i)]+phaseOffset));
-                const double rightWave=std::sin(2*pi*(voicePhase[size_t(i)]+phaseOffset+
-                                  .14+.28*bound(p.extras[1])));
-                const double baseMs=9.+15.*bound(p.delay);
-                const double depthMs=(.5+3.2*bound(p.depth))*(.60+.40*bound(p.extras[0]));
-                const double spreadMs=1.8*bound(p.spread)*location;
-                // ENSEMBLE was displayed as a macro but did not affect this
-                // revised chorus engine. A slow secondary wave now provides
-                // subtle staggered movement without changing the main detune.
-                const double ensemble=.65*bound(p.extras[3])*
-                    wave(.41,double(i)/std::max(1,n));
-                const double dL=sr*.001*(baseMs+depthMs*leftWave+spreadMs+ensemble);
-                const double dR=sr*.001*(baseMs+depthMs*rightWave-spreadMs-ensemble);
-                const float dl=v.tap(0,l,dL,p,true),dr=v.tap(1,r,dR,p,true);
-                const float smoothing=.30f+.60f*(1.f-bound(p.extras[2]));
-                v.air[0]+=smoothing*(dl-v.air[0]);
-                v.air[1]+=smoothing*(dr-v.air[1]);
-                const float pan=location*bound(p.spread)*bound(p.extras[1])*.28f;
-                outL+=v.air[0]*(1.f-pan);
-                outR+=v.air[1]*(1.f+pan);
-            } else if(mode==1) { // FLANGER: short comb with controllable stereo phase
+            if(mode==1) { // FLANGER: short comb with controllable stereo phase
                 const float instant=std::min(1.f,.5f*(std::abs(l)+std::abs(r)));
                 const float env=quality<=0.f?instant:instant+quality*(flangerEnvelope-instant);
                 const float travel=.25f+1.45f*bound(p.extras[0]);
@@ -426,8 +411,8 @@ public:
                 const double dR=sr*.001*(baseMs+.5f*sweepMs*(1.f+b)+follow);
                 Controls coloured=p;
                 coloured.tone=bound(p.tone+(p.extras[1]-.5f)*.40f);
-                outL+=v.tap(0,l,dL,coloured,true);
-                outR+=v.tap(1,r,dR,coloured,true);
+                outL+=v.tap(0,l,dL,coloured,true,matchedTone,matchedDc);
+                outR+=v.tap(1,r,dR,coloured,true,matchedTone,matchedDc);
             } else if(mode==7) { // DIMENSION: slow short-delay stereo doubling
                 const float location=n>1 ? float(i)/float(n-1) : .5f;
                 const double offset=double(i)/double(n);
@@ -436,14 +421,16 @@ public:
                 const double base=11.+18.*bound(p.delay);
                 const double motion=(.18+1.8*bound(p.depth))*(.6+.4*bound(p.extras[0]));
                 const double separation=5.*bound(p.spread)*location*bound(p.extras[1]);
-                const float dl=v.tap(0,l,sr*.001*(base+motion*waveL+separation),p,true);
-                const float dr=v.tap(1,r,sr*.001*(base+motion*waveR-separation),p,true);
-                const float tone=.12f+.75f*bound(p.extras[2]);
+                const float dl=v.tap(0,l,sr*.001*(base+motion*waveL+separation),p,true,matchedTone,matchedDc);
+                const float dr=v.tap(1,r,sr*.001*(base+motion*waveR-separation),p,true,matchedTone,matchedDc);
+                const float tone=matchedDimensionTone;
                 v.air[0]+=tone*(dl-v.air[0]);
                 v.air[1]+=tone*(dr-v.air[1]);
                 const float pan=(location-.5f)*bound(p.extras[3])*.55f;
-                outL+=v.air[0]*(1.f-pan);
-                outR+=v.air[1]*(1.f+pan);
+                const float move=quality<=0.f?0.f:.23f*bound(p.extras[3])*bound(p.depth)*float(wave(.17,offset));
+                const auto gains=movingPan(pan,move,quality);
+                outL+=v.air[0]*gains[0];
+                outR+=v.air[1]*gains[1];
             } else { // ORBIT: amplitude / ITD / air-distance approximation.
                 // Keep the approved legacy geometry exactly at quality=0.
                 const float angle=float(2*pi*(cycle+double(i)/n*p.spread));
@@ -544,6 +531,7 @@ private:
         return {saturate(a),saturate(b)};
     }
     double sr=48000;
+    RateMatchedPole rateMatched;
     std::array<std::array<Voice,8>,8> voices{};
     std::array<Delay,2> reverse{};
     std::array<std::array<Biquad,5>,2> formants{};
@@ -554,7 +542,7 @@ private:
     int keyCacheRoot=-1,keyCacheScale=-1;
     std::array<double,8> phase{},continuousPhase{};
     float flangerEnvelope=0.f;
-    std::array<double,8> voicePhase{},tunedDelay{};
+    std::array<double,8> tunedDelay{};
     std::array<unsigned,8> samples{};
     int grainClock=0;uint32_t rng=0xFA11B00Du;
 };
