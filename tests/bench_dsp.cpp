@@ -13,9 +13,10 @@ int main() {
     constexpr int warmup=8192,measure=96000;
     constexpr double rate=48000.;
     volatile double sink=0.;
-    const char* modeNames[]{"Chorus","Flanger","Vowel (legacy)","Reverse (legacy)","Orbit","Tuned (legacy)","Flangus","Dimension","Morph 0->6"};
+    const char* modeNames[]{"Chorus","Flanger","Vowel (legacy)","Reverse (legacy)","Orbit","Tuned (legacy)","Native slot (separate test)","Dimension","Morph 0->7"};
     double worst=0.;
     for(int mode=0;mode<9;++mode){
+        if(mode==6)continue;
         EngineBank bank;bank.prepare(rate);
         EqualPowerBlend blend;blend.prepare();
         Controls p;p.order=8;p.depth=.85f;p.delay=.7f;
@@ -30,7 +31,7 @@ int main() {
             std::array<float,2> value{};
             if(mode==8){
                 const auto a=bank.process(0,in,-in,p);
-                const auto b=bank.process(6,in,-in,p);
+                const auto b=bank.process(7,in,-in,p);
                 const auto gain=blend.gains(.5f);
                 value={a[0]*gain[0]+b[0]*gain[1],
                        a[1]*gain[0]+b[1]*gain[1]};

@@ -32,7 +32,7 @@ int main(){
   CHECK(modern.panTravel/modern.energy>shallow.panTravel/shallow.energy+.1);
   CHECK(anti.energy>modern.energy*.7);
   std::printf("%d Hz Orbit pan travel: legacy %.4f enhanced %.4f shallow %.4f; anti-phase energy %.4f\n",rate,old.panTravel/old.energy,modern.panTravel/modern.energy,shallow.panTravel/shallow.energy,anti.energy/modern.energy);
-  for(int mode:{0,1,4,6,7}){
+  for(int mode:{0,1,4,7}){
    EngineBank engine;engine.prepare(rate);
    ControlSmoother smooth;smooth.prepare(rate);
    Controls p;p.mode=mode;p.order=8;p.speed=1.f;p.depth=1.f;p.spread=1.f;p.feedback=.8f;

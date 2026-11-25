@@ -42,16 +42,13 @@ if(SKELLFLANG_BUILD_UI_SMOKE)
 endif()
 
 
-# Normal source layout. Legacy source-only checkout remains buildable until
-# the owner supplies the licensed native files. Existing CMake cache paths
-# continue to work; no separate native plugin or VST3 identity.
+# One normal VST3 build. Native source is mandatory; no fallback algorithm.
 set(SKELLY_FLANGUS_SOURCE_DIR "" CACHE PATH "Native Flangus source override (optional)")
 if(SKELLY_FLANGUS_SOURCE_DIR STREQUAL "" AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Source/NativeFlangus/Flangus.cpp")
   set(SKELLY_FLANGUS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Source/NativeFlangus")
 endif()
-option(SKELLFLANG_REQUIRE_NATIVE "Fail configuration if native Flangus is unavailable" OFF)
-if(SKELLFLANG_REQUIRE_NATIVE AND SKELLY_FLANGUS_SOURCE_DIR STREQUAL "")
-  message(FATAL_ERROR "Native Flangus source missing from Source/NativeFlangus")
+if(SKELLY_FLANGUS_SOURCE_DIR STREQUAL "")
+  message(FATAL_ERROR "Native Flangus is mandatory: install the licensed source in Source/NativeFlangus")
 endif()
 if(NOT SKELLY_FLANGUS_SOURCE_DIR STREQUAL "")
   foreach(f Flangus.cpp SkellFlangusAdapter.h core/FlangusFastDist.h)

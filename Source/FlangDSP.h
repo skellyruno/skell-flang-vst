@@ -278,6 +278,8 @@ public:
     }
     std::array<float,2> process(int which,float l,float r,const Controls& p) noexcept {
         const int mode=std::clamp(which,0,7);
+        // Slot 6 is owned exclusively by the native full-mix engine.
+        if(mode==6)return {0.f,0.f};
         const int n=std::clamp(p.order,1,8);
         const double hz=lfoFrequency(p);
         const double step=std::min((mode==4?hz*(.5+.9*bound(p.extras[3])):hz)/sr,.2);
@@ -426,24 +428,6 @@ public:
                 coloured.tone=bound(p.tone+(p.extras[1]-.5f)*.40f);
                 outL+=v.tap(0,l,dL,coloured,true);
                 outR+=v.tap(1,r,dR,coloured,true);
-            } else if(mode==6) { // FLANGUS: two motion rates over an ensemble of comb delays
-                const float location=n>1 ? float(i)/float(n-1) : .5f;
-                const double offset=double(i)*bound(p.spread)/std::max(1,n);
-                const double slowL=std::sin(2*pi*(cycle+offset));
-                const double slowR=std::sin(2*pi*(cycle+offset+.15+.18*bound(p.extras[1])));
-                const double fastL=wave(1.71,offset*.71);
-                const double fastR=quality<=0.f?std::sin(2*pi*(cycle*1.71+offset*.71+.19)):wave(1.71,offset*.71+.19);
-                const double base=3.+12.*bound(p.delay)+4.*location*bound(p.spread);
-                const double travel=(.5+4.*bound(p.depth))*(.45+.55*bound(p.extras[0]));
-                const double jet=(.2+2.2*bound(p.extras[2]))*bound(p.depth);
-                Controls coloured=p;
-                coloured.tone=bound(p.tone+.24f*(bound(p.extras[3])-.5f));
-                // Keep the hybrid from collapsing into an almost-zero delay
-                // on depth/jet extremes; avoids abrupt, brittle comb spikes.
-                const double dl=std::max(1.2,base+travel*slowL+jet*fastL);
-                const double dr=std::max(1.2,base+travel*slowR+jet*fastR);
-                outL+=v.tap(0,l,sr*.001*dl,coloured,true);
-                outR+=v.tap(1,r,sr*.001*dr,coloured,true);
             } else if(mode==7) { // DIMENSION: slow short-delay stereo doubling
                 const float location=n>1 ? float(i)/float(n-1) : .5f;
                 const double offset=double(i)/double(n);

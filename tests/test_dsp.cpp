@@ -77,6 +77,7 @@ int main(){
     REQUIRE(pitch.conf()>.75);
     for(int m=0;m<8;++m){
         EngineBank bank;bank.prepare(48000);
+        if(m==6){REQUIRE((bank.process(6,.25f,-.25f,Controls{})==std::array<float,2>{0.f,0.f}));continue;}
         Controls p;p.mode=m;p.order=8;p.depth=.95f;p.delay=.8f;p.feedback=.9f;
         p.confidence=.96f;p.pitch=220.f;p.extras[0]=.7f;p.extras[1]=.8f;
         double energy=0;
@@ -256,8 +257,8 @@ int main(){
         }
         REQUIRE(difference>1.);
     }
-    // New ensemble modes must remain audible and different from their parents.
-    for(const int mode : {6,7}) {
+    // Dimension remains audible; native Flangus is tested in its own executable.
+    for(const int mode : {7}) {
         EngineBank bank;bank.prepare(48000);
         Controls p;p.order=5;p.depth=.62f;p.speed=.45f;p.delay=.46f;
         p.feedback=.18f;p.spread=.66f;

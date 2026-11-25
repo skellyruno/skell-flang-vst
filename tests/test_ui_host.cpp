@@ -99,7 +99,10 @@ int main(int argc,char** argv){
             processor.reset();
             processor.prepareToPlay(22050.,32);
             refresh();
-            verify(processor.rawEngineStatus()==0&&editor->findChildWithID("lfo-wave")->isVisible(),"Unsupported rate must show legacy controls");
+            verify(processor.rawEngineStatus()==0&&!editor->findChildWithID("lfo-wave")->isVisible(),"Unsupported rate retains native controls with bypass warning");
+            for(int i=0;i<4096;++i){nativeAudio.setSample(0,i,.25f);nativeAudio.setSample(1,i,-.5f);}
+            processor.processBlock(nativeAudio,noMidi);
+            for(int i=0;i<4096;++i)verify(nativeAudio.getSample(0,i)==.25f&&nativeAudio.getSample(1,i)==-.5f,"Unsupported-rate native bypass altered input");
             processor.setStateInformation(saved.getData(),int(saved.getSize()));
             processor.prepareToPlay(48000.,4096);
             refresh();
@@ -139,13 +142,7 @@ int main(int argc,char** argv){
             std::cerr<<"--native requires the native-engine source\n";return 2;
 #endif
         }
-        const auto legacyPreset=[&](int n){
-            processor.applyFactoryPreset(n);
-#if defined(SKELLFLANG_RAW_ENGINE)
-            if(auto* flag=processor.parameters.getParameter(skellflang::RawFlangusPath::enabledId))
-                flag->setValueNotifyingHost(0.f);
-#endif
-        };
+        const auto legacyPreset=[&](int n){processor.applyFactoryPreset(n);};
         legacyPreset(0);
         verify(editor->getWidth()==540 && editor->getHeight()==375,
                "Compact 540 x 375 editor proportions are incorrect");
@@ -496,11 +493,21 @@ int main(int argc,char** argv){
             if(scene.id.contains("-macro"))
                 selectedMacro=juce::jlimit(0,3,scene.id.fromLastOccurrenceOf(
                     "-macro",false,false).getIntValue());
-            click(macroSelectors[size_t(selectedMacro)],"Cannot select macro");
-            verify(macroDials[size_t(selectedMacro)]->isVisible(),
-                   "Wrong macro dial visibility");
-            verify(wave->isVisible()&&sync->isVisible(),
-                   "Signal wave or header sync control hidden");
+            if(expectedMode==6) {
+                verify(!wave->isVisible()&&!sync->isVisible(),"Native irrelevant controls visible");
+                // Keep the four existing diagnostic scene IDs but vary native
+                // Depth instead of the removed hybrid character macros.
+                if(scene.id.contains("-macro")) {
+                    auto* depthParam=processor.parameters.getParameter("skellyRawDepth");
+                    verify(depthParam!=nullptr,"Native depth missing");
+                    depthParam->setValueNotifyingHost(depthParam->convertTo0to1(float(128+selectedMacro*256)));
+                    click(skull,"Refresh native depth scene");click(skull,"Refresh native depth scene");click(skull,"Refresh native depth scene");
+                }
+            } else {
+                click(macroSelectors[size_t(selectedMacro)],"Cannot select macro");
+                verify(macroDials[size_t(selectedMacro)]->isVisible(),"Wrong macro dial visibility");
+                verify(wave->isVisible()&&sync->isVisible(),"Signal wave or header sync control hidden");
+            }
         };
         options.inspect=[&]{
             juce::StringArray errors;
@@ -515,7 +522,8 @@ int main(int argc,char** argv){
                     errors.add("Control too small: "+c->getComponentID());
                 ++count;
             }
-            if(count<23)errors.add("Too few visible controls");
+            const bool native=processor.rawFlangusRequested();
+            if(count<(native?15:23))errors.add("Too few visible controls");
             if(editNext->isVisible()) {
                 const float scale=editor->getWidth()/720.f;
                 const int focused=int(processor.parameters
@@ -583,10 +591,10 @@ int main(int argc,char** argv){
             }
             int shownDials=0;
             for(auto* dial:macroDials)if(dial->isVisible())++shownDials;
-            if(shownDials!=1)errors.add("Character dial count must equal one");
+            if(shownDials!=(native?0:1))errors.add("Wrong character dial count");
             for(auto* btn:macroSelectors)
-                if(!btn->isVisible())errors.add("Character selector hidden");
-            if(wave->getSelectedId()==0)
+                if(btn->isVisible()==native)errors.add("Wrong character selector visibility");
+            if(!native&&wave->getSelectedId()==0)
                 errors.add("Waveform selection is blank");
             // All interactive controls must have independent, non-overlapping
             // mouse hit areas, even at the compact 540 px editor width.

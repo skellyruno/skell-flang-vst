@@ -58,6 +58,12 @@ public:
     }
     std::array<float,2> blendLayer(int offset,float inputL,float inputR,float legacyL,float legacyR,
         float legacyLayerL,float legacyLayerR,float output,float power,float fraction) noexcept {
+        if(!ready) {
+            // Unsupported rate: substitute safe unprocessed audio. Never use
+            // a hidden replacement algorithm or silently mute the native layer.
+            return replaceNativeLayer({legacyL,legacyR},{legacyLayerL,legacyLayerR},
+                {inputL*(1.f-power)+power*output*inputL,inputR*(1.f-power)+power*output*inputR},fraction,1.f);
+        }
         if(!validChunk||offset<0||offset>=validCount)return {legacyL,legacyR};
         rampPosition=target?std::min(rampLength,rampPosition+1):std::max(0,rampPosition-1);
         if(rampPosition==0||power<=0.f)return {legacyL,legacyR};

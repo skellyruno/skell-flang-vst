@@ -993,13 +993,11 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         const bool powered=active&&active->load(std::memory_order_relaxed)>.5f;
         menu.addItem(1,"Effect enabled",true,powered);
         const auto* enhanced=processor.parameters.getRawParameterValue("enhancedMotion");
-        menu.addItem(66,"Enhanced Motion / Orbit (A/B)",true,enhanced&&enhanced->load(std::memory_order_relaxed)>.5f);
+        menu.addItem(66,"Enhanced Motion (Chorus / Flanger / Dimension)",true,enhanced&&enhanced->load(std::memory_order_relaxed)>.5f);
 #if defined(SKELLFLANG_RAW_ENGINE)
         menu.addSeparator();
         menu.addSectionHeader("FLANGUS SETTINGS");
-        const auto* native=processor.parameters.getRawParameterValue(skellflang::RawFlangusPath::enabledId);
-        if(native&&native->load(std::memory_order_relaxed)<.5f)
-            menu.addItem(60,"Convert this saved session to native Flangus");
+
         menu.addItem(61,"Reset eight raw controls to defaults");
         menu.addItem(62,"Enter exact raw integers...");
         menu.addItem(63,"Import raw settings...");
@@ -1027,15 +1025,6 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
             [safeEditor](int item){
                 if(!safeEditor)return;
 #if defined(SKELLFLANG_RAW_ENGINE)
-                if(item==60) {
-                    if(auto* v=safeEditor->processor.parameters.getParameter(skellflang::RawFlangusPath::enabledId)) {
-                        v->beginChangeGesture();v->setValueNotifyingHost(1.f);v->endChangeGesture();
-                        if(auto* old=safeEditor->processor.parameters.getParameter("skellyRawExclusiveLegacy"))
-                            old->setValueNotifyingHost(0.f);
-                        safeEditor->markPresetCustom();safeEditor->updateMode();
-                    }
-                    return;
-                }
                 if(item==61){safeEditor->applyRawSettings(skellflang::rawsettings::defaults);return;}
                 if(item==62){safeEditor->openRawEntry();return;}
                 if(item>=63&&item<=65){safeEditor->chooseRawFile(item!=63,item==65);return;}
@@ -1247,7 +1236,7 @@ void SkellFlangAudioProcessorEditor::updateMode() {
     const bool legacy=layering&&layering->load(std::memory_order_relaxed)<.5f;
 #if defined(SKELLFLANG_RAW_ENGINE)
     const bool unavailable=processor.rawFlangusRequested()&&processor.rawEngineStatus()==0;
-    const bool native=processor.rawFlangusRequested()&&!unavailable;
+    const bool native=processor.rawFlangusRequested();
     const bool exclusive=processor.rawFlangusExclusive();
     const bool nativeChanged=native!=shownRaw||unavailable!=shownRawUnavailable;
     if(native!=shownRaw){shownRaw=native;bindRawControls(native);}
@@ -1533,8 +1522,8 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.setFont(juce::Font(10.f*typeBoost,juce::Font::bold));
     // The label and edit arrow track each other even when 540px text grows.
     const int drawnMode=std::clamp(shownMode,0,7);
-    const auto focusedTitle=native?juce::String("NATIVE FLANGUS"):juce::String(characterTitle(drawnMode));
-    const int titleBounds=native?280:juce::roundToInt(characterTitleWidth(drawnMode,s))+3;
+    const auto focusedTitle=juce::String(characterTitle(drawnMode));
+    const int titleBounds=juce::roundToInt(characterTitleWidth(drawnMode,s))+3;
     g.drawFittedText(focusedTitle,383,357,titleBounds,15,
                      juce::Justification::centredLeft,1);
     g.setColour(skin.accent.withAlpha(.78f));
@@ -1555,7 +1544,7 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     }
     const auto* stackParam=processor.parameters.getRawParameterValue("layerMode");
     const bool stackEnabled=stackParam&&stackParam->load(std::memory_order_relaxed)>.5f;
-    const juce::String description=unavailable?juce::String("NATIVE UNAVAILABLE / LEGACY AUDIO (32-192 kHz REQUIRED)"):native?juce::String("FLANGUS / NATIVE ENGINE  |  ")+names:stackEnabled
+    const juce::String description=unavailable?juce::String("FLANGUS BYPASS / 32-192 kHz REQUIRED"):native?juce::String("FLANGUS / NATIVE ENGINE  |  ")+names:stackEnabled
         ? ("LAYERS  "+juce::String(count)+"/5     "+names)
         : ("LEGACY MODE  /  "+juce::String(modes[std::clamp(shownMode,0,7)]));
     g.setColour(glow.withAlpha(skin.themeIndex==2?.92f:.86f));
