@@ -48,6 +48,14 @@ private:
     void updateMacroSelection();
     void updateEditChevronBounds();
     void markPresetCustom();
+#if defined(SKELLFLANG_RAW_ENGINE)
+    void bindRawControls(bool);
+    void applyRawSettings(const skellflang::rawsettings::State&);
+    void openRawEntry();
+    void chooseRawFile(bool,bool);
+    bool shownRaw=false;
+    std::unique_ptr<juce::FileChooser> rawFileChooser;
+#endif
 
     SkellFlangAudioProcessor& processor;
     FlangLookAndFeel skin;

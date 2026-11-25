@@ -73,7 +73,7 @@ void SkellFlangAudioProcessor::prepareToPlay(double sr,int) {
     rate=std::max(8000.0,sr);
     engines.prepare(rate);pitchTracker.prepare(rate);crossfade.prepare();
 #if defined(SKELLFLANG_RAW_ENGINE)
-    rawFlangus.prepare(sr,rawFlangusSettings(),raw(skellflang::RawFlangusPath::enabledId)>.5f);
+    rawFlangus.prepare(sr,rawFlangusSettings(),rawFlangusRequested());
 #endif
     for(auto& smoother:controlSmoothers)smoother.prepare(rate);
     dryMix.reset(rate,.006);wetMix.reset(rate,.006);outputMix.reset(rate,.006);
@@ -106,6 +106,9 @@ float SkellFlangAudioProcessor::raw(const char* id)const noexcept {
     return v?v->load(std::memory_order_relaxed):0;
 }
 #if defined(SKELLFLANG_RAW_ENGINE)
+bool SkellFlangAudioProcessor::rawFlangusRequested()const noexcept {
+    return raw(skellflang::RawFlangusPath::enabledId)>.5f && int(raw("mode"))==6;
+}
 skellflang::RawFlangusPath::State SkellFlangAudioProcessor::rawFlangusSettings()const noexcept {
     auto s=skell::flangusfx::defaults;
     for(std::size_t k=0;k<s.size();++k) {
@@ -163,7 +166,7 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
     auto* left=buffer.getWritePointer(0);
     auto* right=channels>1?buffer.getWritePointer(1):nullptr;
 #if defined(SKELLFLANG_RAW_ENGINE)
-    rawFlangus.beginBlock(raw(skellflang::RawFlangusPath::enabledId)>.5f,rawFlangusSettings());
+    rawFlangus.beginBlock(rawFlangusRequested(),rawFlangusSettings());
 #endif
     const bool tracking=!layered && (active==5 || (target==5 && requestedMorph>.0001f)
                         || (previous==5 && remaining>0));
@@ -296,7 +299,11 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
     meters.cpu.store(cpuDisplay,std::memory_order_relaxed);
 }
 void SkellFlangAudioProcessor::getStateInformation(juce::MemoryBlock& m) {
-    if(auto xml=parameters.copyState().createXml())copyXmlToBinary(*xml,m);
+    auto state=parameters.copyState();
+#if defined(SKELLFLANG_RAW_ENGINE)
+    state.setProperty("rawRoutingVersion",1,nullptr);
+#endif
+    if(auto xml=state.createXml())copyXmlToBinary(*xml,m);
 }
 void SkellFlangAudioProcessor::setStateInformation(const void* ptr,int size) {
     if(auto xml=getXmlFromBinary(ptr,size)) {
@@ -318,6 +325,15 @@ void SkellFlangAudioProcessor::setStateInformation(const void* ptr,int size) {
                 tree.appendChild(child,nullptr);
             };
             addMissing(skellflang::RawFlangusPath::enabledId,0.f);
+            // Preserve the audible selection of the original exclusive trial.
+            if(!tree.hasProperty("rawRoutingVersion")) {
+                const auto enabled=tree.getChildWithProperty("id",skellflang::RawFlangusPath::enabledId);
+                if(enabled.isValid()&&float(enabled.getProperty("value"))>.5f) {
+                    addMissing("mode",6.f);
+                    tree.getChildWithProperty("id","mode").setProperty("value",6.f,nullptr);
+                }
+            }
+            tree.setProperty("rawRoutingVersion",1,nullptr);
             for(std::size_t k=0;k<skellflang::RawFlangusPath::ids.size();++k)
                 addMissing(skellflang::RawFlangusPath::ids[k],float(skell::flangusfx::defaults[k]));
 #endif

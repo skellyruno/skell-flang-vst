@@ -35,6 +35,10 @@ public:
     void getStateInformation(juce::MemoryBlock&) override;
     void setStateInformation(const void*,int) override;
     void applyFactoryPreset(int);
+#if defined(SKELLFLANG_RAW_ENGINE)
+    bool rawFlangusRequested() const noexcept;
+    skellflang::RawFlangusPath::State rawFlangusSettings() const noexcept;
+#endif
     // New layered mode is additive; these exact parameter IDs are never recycled.
     static constexpr std::array<int,5> layerModes{{0,1,6,4,7}};
     static constexpr std::array<const char*,5> layerParameterIDs{{
@@ -58,7 +62,6 @@ private:
     skellflang::Controls settings(int mode) const noexcept;
     skellflang::EngineBank engines;
 #if defined(SKELLFLANG_RAW_ENGINE)
-    skellflang::RawFlangusPath::State rawFlangusSettings() const noexcept;
     skellflang::RawFlangusPath rawFlangus;
 #endif
     skellflang::PitchTracker pitchTracker;

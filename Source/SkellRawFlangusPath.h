@@ -1,5 +1,6 @@
 #pragma once
 #include "SkellFlangusAdapter.h"
+#include "RawFlangusSettings.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -16,7 +17,11 @@ public:
     bool prepare(double rate,const State& state,bool enabled) {
         ready=false;target=false;amount=0.f;validChunk=false;
         if(!std::isfinite(rate)||rate<32000.||rate>192000.||std::abs(rate-std::round(rate))>1.e-6)return false;
+#if defined(SKELLFLANG_SAMPLE_CLOCK_RAMP)
+        if(!adapter.prepare(static_cast<int>(rate),state,true))return false;
+#else
         if(!adapter.prepare(static_cast<int>(rate),state))return false;
+#endif
         step=static_cast<float>(1./(rate*.02));ready=true;target=enabled;amount=enabled?1.f:0.f;
         return true;
     }
