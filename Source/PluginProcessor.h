@@ -70,6 +70,7 @@ private:
     float raw(const char*) const noexcept;
     skellflang::Controls settings(int mode) const noexcept;
     skellflang::EngineBank engines;
+    std::array<bool,8> bankWasAudible{};
     skellflang::NativeClassicChorusPath classicChorus;
     std::atomic<int> classicStatus{-1};
 #if defined(SKELLFLANG_RAW_ENGINE)

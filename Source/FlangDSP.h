@@ -233,6 +233,13 @@ class EngineBank {
             lagAlpha=1.-std::exp(-1./(std::max(8000.,sr)*.0035));
             fbAlpha=float(1.-std::exp(-1./(std::max(8000.,sr)*.008)));
         }
+        void reset() noexcept {
+            for(auto& d:delay)d.clear();
+            for(int ch=0;ch<2;++ch){
+                low[ch]=dcx[ch]=dcy[ch]=air[ch]=fb[ch]=0.f;
+                lag[ch]=0.;lagReady[ch]=false;
+            }
+        }
         float tap(int ch,float input,double delaySamples,const Controls& p,
                   float transparentInput=0.f,float toneOverride=-1.f,float dcPole=.995f) noexcept {
             // 3.5 ms one-pole slew prevents fractional-delay zippering on
@@ -278,6 +285,17 @@ public:
         tunedRatio=1.;
         for(auto& pair:formants)for(auto& f:pair)f={};
         grains={};lfoCache={};phase.fill(0);continuousPhase.fill(0);flangerEnvelope=0.f;tunedDelay.fill(0);samples.fill(0);grainClock=0;rng=0xFA11B00Du;
+    }
+    // Clear a dormant mode only when it is reactivated, after its old
+    // layer fade has finished. Never allocate or reset a still-audible voice.
+    void resetMode(int mode) noexcept {
+        if(mode<0||mode>7||mode==0||mode==6)return;
+        for(auto& v:voices[size_t(mode)])v.reset();
+        phase[mode]=continuousPhase[mode]=0.;samples[mode]=0;lfoCache[mode]={};
+        if(mode==1)flangerEnvelope=0.f;
+        if(mode==2)for(auto& pair:formants)for(auto& f:pair)f={};
+        if(mode==3){for(auto& line:reverse)line.clear();grains={};grainClock=0;rng=0xFA11B00Du;}
+        if(mode==5){tunedDelay.fill(0);keyCacheRoot=keyCacheScale=-1;cachedSpread=-1.;tunedRatio=1.;}
     }
     std::array<float,2> process(int which,float l,float r,const Controls& p) noexcept {
         const int mode=std::clamp(which,0,7);
@@ -401,22 +419,24 @@ public:
             }
             return {saturate(outL/n),saturate(outR/n)};
         }
+        const float instant=mode==1?std::min(1.f,.5f*(std::abs(l)+std::abs(r))):0.f;
+        const float env=quality<=0.f?instant:instant+quality*(flangerEnvelope-instant);
+        const float travel=.25f+1.45f*bound(p.extras[0]);
+        const float baseMs=.16f+3.4f*bound(p.delay)+1.8f*bound(p.extras[2]);
+        const float sweepMs=(.12f+3.9f*bound(p.depth))*travel;
+        const float follow=1.8f*env*bound(p.extras[3]);
+        Controls coloured=p;
+        coloured.tone=bound(p.tone+(p.extras[1]-.5f)*.40f);
+        const double dimensionBase=11.+18.*bound(p.delay);
+        const double dimensionMotion=(.18+1.8*bound(p.depth))*(.6+.4*bound(p.extras[0]));
         for(int i=0;i<n;++i) {
             auto& v=voices[size_t(mode)][size_t(i)];
             if(mode==1) { // FLANGER: short comb with controllable stereo phase
-                const float instant=std::min(1.f,.5f*(std::abs(l)+std::abs(r)));
-                const float env=quality<=0.f?instant:instant+quality*(flangerEnvelope-instant);
-                const float travel=.25f+1.45f*bound(p.extras[0]);
                 const float phaseOffset=float(i)*bound(p.spread)/float(n);
                 const float a=mod(phaseOffset);
                 const float b=mod(phaseOffset+.04f+.35f*bound(p.spread));
-                const float baseMs=.16f+3.4f*bound(p.delay)+1.8f*bound(p.extras[2]);
-                const float sweepMs=(.12f+3.9f*bound(p.depth))*travel;
-                const float follow=1.8f*env*bound(p.extras[3]);
                 const double dL=sr*.001*(baseMs+.5f*sweepMs*(1.f+a)+follow);
                 const double dR=sr*.001*(baseMs+.5f*sweepMs*(1.f+b)+follow);
-                Controls coloured=p;
-                coloured.tone=bound(p.tone+(p.extras[1]-.5f)*.40f);
                 outL+=v.tap(0,l,dL,coloured,true,matchedTone,matchedDc);
                 outR+=v.tap(1,r,dR,coloured,true,matchedTone,matchedDc);
             } else if(mode==7) { // DIMENSION: slow short-delay stereo doubling
@@ -424,8 +444,8 @@ public:
                 const double offset=double(i)/double(n);
                 const double waveL=wave(.52,offset);
                 const double waveR=quality<=0.f?std::sin(2*pi*(cycle*.58+offset+.33)):wave(.58,offset+.33);
-                const double base=11.+18.*bound(p.delay);
-                const double motion=(.18+1.8*bound(p.depth))*(.6+.4*bound(p.extras[0]));
+                const double base=dimensionBase;
+                const double motion=dimensionMotion;
                 const double separation=5.*bound(p.spread)*location*bound(p.extras[1]);
                 const float dl=v.tap(0,l,sr*.001*(base+motion*waveL+separation),p,true,matchedTone,matchedDc);
                 const float dr=v.tap(1,r,sr*.001*(base+motion*waveR-separation),p,true,matchedTone,matchedDc);

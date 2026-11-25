@@ -84,7 +84,7 @@ bool SkellFlangAudioProcessor::isBusesLayoutSupported(const BusesLayout& l)const
 }
 void SkellFlangAudioProcessor::prepareToPlay(double sr,int) {
     rate=std::max(8000.0,sr);
-    engines.prepare(rate);pitchTracker.prepare(rate);crossfade.prepare();
+    engines.prepare(rate);bankWasAudible.fill(false);pitchTracker.prepare(rate);crossfade.prepare();
     const bool chorusActive=raw("layerMode")>.5f?raw("layerChorus")>.5f:
         (int(raw("mode"))==0||(int(raw("morphTarget"))==0&&raw("morph")>0.f));
     classicStatus.store(classicChorus.prepare(sr,classicChorusSettings(),chorusActive)?1:0,std::memory_order_release);
@@ -132,7 +132,7 @@ skellflang::classicchorus::State SkellFlangAudioProcessor::classicChorusSettings
     return s;
 }
 #if defined(SKELLFLANG_RAW_ENGINE)
-void SkellFlangAudioProcessor::reset() {rawFlangus.reset();classicChorus.reset();}
+void SkellFlangAudioProcessor::reset() {rawFlangus.reset();classicChorus.reset();bankWasAudible.fill(false);}
 bool SkellFlangAudioProcessor::rawFlangusRequested()const noexcept {
     return int(raw("mode"))==6;
 }
@@ -214,6 +214,23 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
         (!layered&&(active==6 || (target==6&&(requestedMorph>0.f||morphMix.getCurrentValue()>0.f)) || (previous==6&&remaining>0)));
     rawFlangus.beginBlock(wantsNative,rawFlangusSettings());
 #endif
+    // Prevent old delay/feedback audio leaking after an effect was switched
+    // off, then reselected. Keep still-fading modes intact. The host reset
+    // invalidates this set; clearing happens at the next required block.
+    std::array<bool,8> bankNeeded{};
+    if(layered) {
+        for(std::size_t k=0;k<layerModes.size();++k)
+            if(raw(layerParameterIDs[k])>.5f||layerGains[k].getCurrentValue()>0.f)
+                bankNeeded[size_t(layerModes[k])]=true;
+        if(!anyLayerTarget)bankNeeded[size_t(fallbackLayer)]=true;
+    } else {
+        bankNeeded[size_t(active)]=true;
+        if(requestedMorph>0.f||morphMix.getCurrentValue()>0.f)bankNeeded[size_t(target)]=true;
+        if(remaining>0)bankNeeded[size_t(previous)]=true;
+    }
+    for(int mode:{1,2,3,4,5,7})
+        if(bankNeeded[size_t(mode)]&&!bankWasAudible[size_t(mode)])engines.resetMode(mode);
+    bankWasAudible=bankNeeded;
     const bool tracking=!layered && (active==5 || (target==5 && requestedMorph>.0001f)
                         || (previous==5 && remaining>0));
     if(tracking && right) {

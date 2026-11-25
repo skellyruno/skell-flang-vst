@@ -92,6 +92,24 @@ int main(int argc,char** argv){
                     verify(processor.getLatencySamples()==0,"Monitoring unexpectedly reports PDC");
                 }
             }
+            for(int preset:{0,4,7,10,13}) {
+                processor.applyFactoryPreset(preset);set("order",8);
+                processor.prepareToPlay(48000.,64);
+                juce::AudioBuffer<float> audio(2,64);juce::MidiBuffer midi;
+                std::vector<double> times;times.reserve(200);
+                for(int block=0;block<220;++block) {
+                    for(int i=0;i<64;++i){
+                        const auto tick=double(block*64+i);
+                        audio.setSample(0,i,.21f*float(std::sin(tick*.051)));
+                        audio.setSample(1,i,.18f*float(std::sin(tick*.079)));
+                    }
+                    const auto begin=Clock::now();processor.processBlock(audio,midi);
+                    if(block>=20)times.push_back(100.*std::chrono::duration<double>(Clock::now()-begin).count()*48000./64);
+                }
+                std::sort(times.begin(),times.end());
+                double mean=0.;for(double t:times)mean+=t/double(times.size());
+                std::cout<<"Solo CPU preset "<<preset<<" at 48k/64: mean "<<mean<<"% p95 "<<times[190]<<"% peak "<<times.back()<<"%\n";
+            }
             processor.applyFactoryPreset(0);processor.prepareToPlay(48000.,64);
             std::atomic<bool> quit{false},bad{false};
             std::atomic<unsigned> blocks{0};
@@ -109,12 +127,21 @@ int main(int argc,char** argv){
                 std::atomic<bool>& stop;std::thread& thread;
                 ~StopAudio(){stop.store(true,std::memory_order_release);if(thread.joinable())thread.join();}
             } stopAudio{quit,audioThread};
+            const auto audioAdvance=[&]{
+                const auto start=blocks.load(std::memory_order_acquire);
+                const auto deadline=Clock::now()+std::chrono::seconds(2);
+                while(blocks.load(std::memory_order_acquire)<start+4 && Clock::now()<deadline)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                verify(blocks.load(std::memory_order_acquire)>=start+4,"Audio stalled during editor operation");
+            };
             for(int round=0;round<16;++round){
-                for(const auto* name:{"CHORUS","FLANGER","FLANGUS","ORBIT","DIMENSION"})
-                    click(findButton(*editor,name),"Effect switch failed during concurrent audio");
-                for(const auto* name:{"CHORUS","FLANGER","FLANGUS","ORBIT"})
-                    doubleClick(findButton(*editor,name),"Layer toggle failed during concurrent audio");
-                editor.reset();
+                for(const auto* name:{"CHORUS","FLANGER","FLANGUS","ORBIT","DIMENSION"}){
+                    click(findButton(*editor,name),"Effect switch failed during concurrent audio");audioAdvance();
+                }
+                for(const auto* name:{"CHORUS","FLANGER","FLANGUS","ORBIT"}){
+                    doubleClick(findButton(*editor,name),"Layer toggle failed during concurrent audio");audioAdvance();
+                }
+                editor.reset();audioAdvance();
                 editor.reset(processor.createEditor());
                 verify(editor!=nullptr,"Editor reopening failed");
                 editor->setVisible(true);
