@@ -25,6 +25,10 @@ void click(juce::TextButton* b,const char* error){
     verify(b!=nullptr && bool(b->onClick),error);
     b->onClick();
 }
+void doubleClick(juce::TextButton* b,const char* error){
+    auto* tab=dynamic_cast<FlangEffectTab*>(b);verify(tab!=nullptr,error);
+    tab->invokeGesture(1);tab->invokeGesture(2);
+}
 }
 
 int main(int argc,char** argv){
@@ -179,6 +183,8 @@ int main(int argc,char** argv){
             click(tab,"Missing effect tab or callback");
             verify(int(processor.parameters.getRawParameterValue("mode")->load())==choices[i],
                    "Displayed mode ID does not match the host parameter choice");
+            for(std::size_t j=0;j<choices.size();++j)
+                verify((processor.parameters.getRawParameterValue(SkellFlangAudioProcessor::layerParameterIDs[j])->load()>.5f)==(i==j),"Single click left an unintended effect active");
         }
         for(const char* old:{"VOWEL","REVERSE","TUNED"})
             verify(findButton(*editor,old)==nullptr,"Removed mode visible in selector");
@@ -206,6 +212,8 @@ int main(int argc,char** argv){
         auto* wave=dynamic_cast<juce::ComboBox*>(editor->findChildWithID("lfo-wave"));
         auto* sync=byID(*editor,"lfo-sync");
         verify(wave&&sync,"Missing WAVE or SYNC");
+        verify(editor->findChildWithID("tone-2")==nullptr,"Output knob must not be displayed");
+        verify(processor.parameters.getParameter("output")!=nullptr,"Legacy output automation ID removed");
         verify(editor->findChildWithID("morph")==nullptr &&
                editor->findChildWithID("morph-target")==nullptr,
                "Retired TO/MORPH controls are still visible");
@@ -219,7 +227,7 @@ int main(int argc,char** argv){
         auto* flanger=findButton(*editor,"FLANGER");
         auto* orbit=findButton(*editor,"ORBIT");
         auto* dimension=findButton(*editor,"DIMENSION");
-        click(flanger,"Could not enable a second layer");
+        doubleClick(flanger,"Could not enable a second layer");
         auto* editNext=byID(*editor,"edit-next");
         verify(editNext && editNext->isVisible() &&
                editNext->getTooltip().containsIgnoreCase("next enabled effect"),
@@ -258,17 +266,17 @@ int main(int argc,char** argv){
         verify(processor.parameters.getRawParameterValue("layerFlanger")->load()>.5f &&
                processor.parameters.getRawParameterValue("layerChorus")->load()>.5f,
                "Enabling Flanger must not remove Chorus");
-        click(orbit,"Cannot add Orbit layer");
-        click(dimension,"Cannot add Dimension layer");
+        doubleClick(orbit,"Cannot add Orbit layer");
+        doubleClick(dimension,"Cannot add Dimension layer");
         verify(processor.parameters.getRawParameterValue("layerOrbit")->load()>.5f &&
                processor.parameters.getRawParameterValue("layerDimension")->load()>.5f,
                "Multiple simultaneous layers not active");
-        click(orbit,"Cannot disable Orbit");
+        doubleClick(orbit,"Cannot disable Orbit");
         verify(processor.parameters.getRawParameterValue("layerOrbit")->load()<.5f,
                "Clicking Orbit again must disable it");
-        click(dimension,"Cannot disable Dimension");
-        click(flanger,"Cannot disable Flanger");
-        click(chorus,"Last active layer must be protected");
+        doubleClick(dimension,"Cannot disable Dimension");
+        doubleClick(flanger,"Cannot disable Flanger");
+        doubleClick(chorus,"Last active layer must be protected");
         verify(!editNext->isVisible(),
                "Edit-next switcher must hide when only one layer is active");
         verify(processor.parameters.getRawParameterValue("layerChorus")->load()>.5f,
@@ -475,11 +483,11 @@ int main(int argc,char** argv){
             legacyPreset(bank);
             if(scene.browser) {
                 const int extra=desired==0?1:0;
-                click(findButton(*editor,extra==0?"CHORUS":"FLANGER"),
+                doubleClick(findButton(*editor,extra==0?"CHORUS":"FLANGER"),
                       "Second layer could not be enabled in renderer");
                 if(scene.id.contains("-all-five")) {
                     for(const auto* name:{"FLANGUS","ORBIT","DIMENSION"})
-                        click(findButton(*editor,name),
+                        doubleClick(findButton(*editor,name),
                               "Cannot build all-five-effect UI test");
                     for(const auto* id:SkellFlangAudioProcessor::layerParameterIDs) {
                         const auto* value=processor.parameters.getRawParameterValue(id);
@@ -576,7 +584,7 @@ int main(int argc,char** argv){
             }
             const bool native=processor.rawFlangusRequested();
             const bool classic=int(processor.parameters.getRawParameterValue("mode")->load())==0;
-            if(count<(native?15:classic?19:23))errors.add("Too few visible controls");
+            if(count<(native?13:classic?17:21))errors.add("Too few visible controls");
             if(editNext->isVisible()) {
                 const float scale=editor->getWidth()/720.f;
                 const int focused=int(processor.parameters

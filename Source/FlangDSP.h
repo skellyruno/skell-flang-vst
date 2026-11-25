@@ -277,14 +277,19 @@ public:
         keyCacheRoot=-1;keyCacheScale=-1;cachedSpread=-1.;
         tunedRatio=1.;
         for(auto& pair:formants)for(auto& f:pair)f={};
-        grains={};phase.fill(0);continuousPhase.fill(0);flangerEnvelope=0.f;tunedDelay.fill(0);samples.fill(0);grainClock=0;rng=0xFA11B00Du;
+        grains={};lfoCache={};phase.fill(0);continuousPhase.fill(0);flangerEnvelope=0.f;tunedDelay.fill(0);samples.fill(0);grainClock=0;rng=0xFA11B00Du;
     }
     std::array<float,2> process(int which,float l,float r,const Controls& p) noexcept {
         const int mode=std::clamp(which,0,7);
         // Slot 6 is owned exclusively by the native full-mix engine.
         if(mode==0||mode==6)return {0.f,0.f};
         const int n=std::clamp(p.order,1,8);
-        const double hz=lfoFrequency(p);
+        auto& cache=lfoCache[std::size_t(mode)];
+        if(!cache.valid||cache.speed!=p.speed||cache.sync!=p.sync||(p.sync&&cache.bpm!=p.bpm)) {
+            cache.speed=p.speed;cache.sync=p.sync;cache.bpm=p.bpm;
+            cache.hz=lfoFrequency(p);cache.valid=true;
+        }
+        const double hz=cache.hz;
         const double step=std::min((mode==4?hz*(.5+.9*bound(p.extras[3])):hz)/sr,.2);
         const double cycle=phase[mode];
         phase[mode]+=step;
@@ -296,10 +301,11 @@ public:
         if(continuousPhase[mode]>=100.)continuousPhase[mode]-=100.;
         const float quality=bound(p.motionQuality);
         const auto wave=[&](double ratio,double offset) noexcept {
+            if(quality>=1.f)return std::sin(2*pi*(continuous*ratio+offset));
             const double old=std::sin(2*pi*(cycle*ratio+offset));
             if(quality<=0.f)return old;
             const double modern=std::sin(2*pi*(continuous*ratio+offset));
-            return quality>=1.f?modern:old+quality*(modern-old);
+            return old+quality*(modern-old);
         };
         if(mode==1) {
             const float env=std::min(1.f,.5f*(std::abs(l)+std::abs(r)));
@@ -540,6 +546,8 @@ private:
     std::array<double,8> keyFrequencies{};
     double cachedSpread=-1.,tunedRatio=1.;
     int keyCacheRoot=-1,keyCacheScale=-1;
+    struct LfoCache {float speed=0.f;bool sync=false,valid=false;double bpm=0.,hz=0.;};
+    std::array<LfoCache,8> lfoCache{};
     std::array<double,8> phase{},continuousPhase{};
     float flangerEnvelope=0.f;
     std::array<double,8> tunedDelay{};

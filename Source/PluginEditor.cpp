@@ -782,6 +782,7 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         p.parameters,"order",order);
 
     for(int i=0;i<7;++i) {
+        if(i==2)continue; // Output ID remains host-compatible; no visible knob or attachment.
         styleSlider(knobs[i],false);
         knobs[i].setComponentID("tone-"+juce::String(i));
         addAndMakeVisible(knobs[i]);
@@ -838,86 +839,71 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         };
         addAndMakeVisible(button);
     }
-    const char* hints[]{
-        "Native three-LFO Classic Chorus",
-        "Comb flanger with stereo phase modulation",
-        "Multi-voice Flangus",
-        "Rotating stereo field with independent L/R",
-        "Slow stereo doubler and dimensional widening"
-    };
     for(int i=0;i<5;++i) {
         const int mode=visibleModes[size_t(i)];
         auto& button=tabs[size_t(i)];
         button.setButtonText(modes[mode]);
-        button.setTooltip("Click to add/remove. Shift-click an active layer to edit without muting.");
+        button.setTooltip("Click: solo effect. Double-click: add/remove layer. Shift-click: add or edit.");
         button.setComponentID("mode-"+juce::String(mode));
-        button.setClickingTogglesState(true);
+        button.setClickingTogglesState(false);
         addAndMakeVisible(button);
         button.onClick=[this,i,mode] {
-#if defined(SKELLFLANG_RAW_ENGINE)
-            if(processor.rawFlangusExclusive()) {
-                // Preserve a recalled exclusive native session until another tab is chosen.
-                if(mode==6){tabs[size_t(i)].setToggleState(true,juce::dontSendNotification);return;}
-                const auto edit=[this](const char* key,float value) {
-                    if(auto* p=processor.parameters.getParameter(key)) {
-                        p->beginChangeGesture();p->setValueNotifyingHost(p->convertTo0to1(value));p->endChangeGesture();
-                    }
-                };
-                edit("skellyRawExclusiveLegacy",0.f);
-                edit("mode",float(mode));edit("layerMode",0.f);
-                markPresetCustom();updateMode();return;
-            }
-#endif
-            const auto id=SkellFlangAudioProcessor::layerParameterIDs[size_t(i)];
-            const auto* raw=processor.parameters.getRawParameterValue(id);
-            const bool wasEnabled=raw&&raw->load(std::memory_order_relaxed)>.5f;
-            // Non-destructive focus gesture: ordinary clicks still toggle
-            // the layer as requested, but Shift-clicking an enabled layer
-            // selects its character macros without touching its audio path.
-            if(wasEnabled && juce::ModifierKeys::currentModifiers.isShiftDown()) {
-                tabs[size_t(i)].setToggleState(true,juce::dontSendNotification);
-                if(auto* focus=processor.parameters.getParameter("mode")) {
-                    focus->beginChangeGesture();
-                    focus->setValueNotifyingHost(focus->convertTo0to1(float(mode)));
-                    focus->endChangeGesture();
-                }
-                updateMode();
-                return;
-            }
-            int count=0;
-            for(const auto* flag:SkellFlangAudioProcessor::layerParameterIDs)
-                if(const auto* value=processor.parameters.getRawParameterValue(flag))
-                    if(value->load(std::memory_order_relaxed)>.5f)++count;
-            if(wasEnabled&&count<=1) {
-                tabs[size_t(i)].setToggleState(true,juce::dontSendNotification);
-                return;
-            }
-            const auto edit=[this](const char* parameterId,float value) {
-                if(auto* p=processor.parameters.getParameter(parameterId)) {
-                    p->beginChangeGesture();
-                    p->setValueNotifyingHost(p->convertTo0to1(value));
-                    p->endChangeGesture();
+            const auto read=[this](const char* id,float fallback) {
+                const auto* v=processor.parameters.getRawParameterValue(id);
+                return v?v->load(std::memory_order_relaxed):fallback;
+            };
+            const auto edit=[this,&read](const char* id,float value) {
+                if(read(id,-999.f)==value)return;
+                if(auto* q=processor.parameters.getParameter(id)) {
+                    q->beginChangeGesture();q->setValueNotifyingHost(q->convertTo0to1(value));q->endChangeGesture();
                 }
             };
-            edit("layerMode",1.f);
-            edit(id,wasEnabled?0.f:1.f);
-            if(!wasEnabled)edit("mode",float(mode));
-            else {
-                const auto* focus=processor.parameters.getRawParameterValue("mode");
-                if(focus&&int(focus->load(std::memory_order_relaxed))==mode)
-                    for(size_t j=0;j<visibleModes.size();++j) {
-                        if(j==size_t(i))continue;
-                        const auto* other=processor.parameters.getRawParameterValue(
-                            SkellFlangAudioProcessor::layerParameterIDs[j]);
-                        if(other&&other->load(std::memory_order_relaxed)>.5f) {
-                            edit("mode",float(visibleModes[j]));
-                            break;
-                        }
-                    }
+            std::array<bool,5> old{};
+            const int focus=int(read("mode",0.f));
+            const bool legacy=read("layerMode",1.f)<.5f
+#if defined(SKELLFLANG_RAW_ENGINE)
+                ||processor.rawFlangusExclusive()
+#endif
+                ;
+            for(std::size_t j=0;j<old.size();++j)
+                old[j]=legacy?visibleModes[j]==focus:
+                    read(SkellFlangAudioProcessor::layerParameterIDs[j],0.f)>.5f;
+            if(std::none_of(old.begin(),old.end(),[](bool b){return b;})) {
+                const auto it=std::find(visibleModes.begin(),visibleModes.end(),focus);
+                old[it==visibleModes.end()?0:std::size_t(it-visibleModes.begin())]=true;
             }
-            // A hand-built combination must not keep displaying its
-            // original single-effect factory preset as if unmodified.
-            markPresetCustom();
+            const bool shift=juce::ModifierKeys::currentModifiers.isShiftDown();
+            const bool doubleClick=tabs[size_t(i)].gestureClicks()>=2&&!shift;
+            auto next=old;
+            int nextFocus=mode;
+            if(doubleClick) {
+                if(haveClickSnapshot&&lastClickedTab==i)next=beforeTabClick;
+                const auto index=size_t(i);
+                if(next[index]&&std::count(next.begin(),next.end(),true)>1) {
+                    next[index]=false;
+                    const auto previous=std::find(visibleModes.begin(),visibleModes.end(),focus);
+                    nextFocus=(previous!=visibleModes.end()&&next[size_t(previous-visibleModes.begin())])?
+                        focus:visibleModes[size_t(std::find(next.begin(),next.end(),true)-next.begin())];
+                } else next[index]=true;
+                haveClickSnapshot=false;
+            } else if(shift) {
+                next[size_t(i)]=true;
+                haveClickSnapshot=false;
+            } else {
+                beforeTabClick=old;lastClickedTab=i;haveClickSnapshot=true;
+                next.fill(false);next[size_t(i)]=true;
+            }
+            // Enable new layers before disabling old ones; the audio thread
+            // fades the old/new weights. Never generate an intentional all-off state.
+            for(std::size_t j=0;j<next.size();++j)
+                if(next[j])edit(SkellFlangAudioProcessor::layerParameterIDs[j],1.f);
+            for(std::size_t j=0;j<next.size();++j)
+                if(!next[j])edit(SkellFlangAudioProcessor::layerParameterIDs[j],0.f);
+#if defined(SKELLFLANG_RAW_ENGINE)
+            edit("skellyRawExclusiveLegacy",0.f);
+#endif
+            edit("layerMode",1.f);edit("mode",float(nextFocus));
+            if(old!=next||legacy)markPresetCustom();
             updateMode();
         };
     }
@@ -1079,7 +1065,17 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
 }
 SkellFlangAudioProcessorEditor::~SkellFlangAudioProcessorEditor(){
     stopTimer();
+    // Cancel owned asynchronous dialogs before tearing down their LookAndFeel.
+    classicFileChooser.reset();
+#if defined(SKELLFLANG_RAW_ENGINE)
+    rawFileChooser.reset();
+#endif
     juce::PopupMenu::dismissAllActiveMenus();
+    // Detach parameter listeners while all of their controls are still alive.
+    for(auto& link:faderLinks)link.reset();
+    orderLink.reset();
+    for(auto& link:knobLinks)link.reset();
+    shapeLink.reset();powerLink.reset();syncLink.reset();
     setLookAndFeel(nullptr);
 }
 
@@ -1109,8 +1105,8 @@ void SkellFlangAudioProcessorEditor::resized() {
         place(faders[size_t(i)],93+i*62,169,49,142);
         place(faderLabels[size_t(i)],88+i*62,316,59,21);
     }
-    for(int i=0;i<3;++i) {
-        const int x=114+i*91;
+    for(int i=0;i<2;++i) {
+        const int x=143+i*106;
         place(knobs[size_t(i)],x,363,59,59);
         place(knobLabels[size_t(i)],x-6,426,71,17);
     }
@@ -1391,11 +1387,8 @@ void SkellFlangAudioProcessorEditor::updateMode() {
     for(int i=0;i<5;++i) {
         tabs[size_t(i)].setToggleState(layers[size_t(i)],
                                        juce::dontSendNotification);
-        tabs[size_t(i)].setTooltip(layers[size_t(i)]
-            ? (juce::String(modes[visibleModes[size_t(i)]])+
-               ": active. Click to remove; Shift-click to edit without muting.")
-            : (juce::String("Add ")+modes[visibleModes[size_t(i)]]+
-               " to the effect stack."));
+        tabs[size_t(i)].setTooltip(juce::String(modes[visibleModes[size_t(i)]])+
+            ": click to solo; double-click to add/remove; Shift-click to add or edit.");
         tabs[size_t(i)].getProperties().set("focused",
             layers[size_t(i)]&&visibleModes[size_t(i)]==selected);
         tabs[size_t(i)].repaint();
@@ -1454,10 +1447,11 @@ void SkellFlangAudioProcessorEditor::timerCallback() {
     if(settings.getTooltip()!=worldTip)settings.setTooltip(worldTip);
     const float s=getWidth()/float(baseW);
     repaint(0,juce::roundToInt(50*s),getWidth(),juce::roundToInt(15*s));
-    repaint(juce::roundToInt(536*s),juce::roundToInt(124*s),
-            juce::roundToInt(171*s),juce::roundToInt(219*s));
+    // Only the waveform changes, not the panel labels and controls.
+    repaint(juce::roundToInt(552*s),juce::roundToInt(162*s),
+            juce::roundToInt(141*s),juce::roundToInt(102*s));
     repaint(0,juce::roundToInt(485*s),getWidth(),
-            std::max(1,getHeight()-juce::roundToInt(426*s)));
+            std::max(1,getHeight()-juce::roundToInt(485*s)));
 }
 void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     const float s=getWidth()/float(baseW);
@@ -1594,10 +1588,10 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     // Every parameter is available without entering a separate MOD page.
     g.setColour(skin.secondary);
     g.setFont(juce::Font(10.5f*typeBoost,juce::Font::bold));
-    g.drawFittedText((native||shownChorus)?"03 / OUTPUT":"03 / TONE",27,367,84,15,
+    g.drawFittedText((native||shownChorus)?"03 / ENGINE":"03 / TONE",27,367,84,15,
                      juce::Justification::centredLeft,1);
     g.setFont(juce::Font(10.2f*typeBoost));
-    g.drawFittedText((native||shownChorus)?"MASTER":"ESSENTIALS",27,394,92,13,
+    g.drawFittedText((native||shownChorus)?"NATIVE":"ESSENTIALS",27,394,92,13,
                      juce::Justification::centredLeft,1);
     // Separate the three always-visible tone knobs from one focused character
     // macro. Four selector pads keep every existing DSP parameter reachable.
@@ -1616,9 +1610,9 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     if(native){g.setColour(skin.secondary);g.setFont(juce::Font(11.5f));g.drawFittedText("SIGNED DRY / WET     •     1–9 VOICES\nHover for units   /   Settings for exact entry",383,383,307,48,juce::Justification::centredLeft,2);}
     if(native||shownChorus){
         g.setColour(skin.secondary);g.setFont(juce::Font(10.5f*typeBoost,juce::Font::bold));
-        g.drawFittedText(shownChorus?"CLASSIC / 3 LFO":"NATIVE / 18 VOICES",114,381,171,15,juce::Justification::centredLeft,1);
+        g.drawFittedText(shownChorus?"CLASSIC / 3 LFO":"NATIVE / UP TO 18 VOICES",114,381,237,15,juce::Justification::centredLeft,1);
         g.setFont(juce::Font(10.f*typeBoost));
-        g.drawFittedText(shownChorus?"Free-running modulation":"Independent dry / wet",114,401,171,15,juce::Justification::centredLeft,1);
+        g.drawFittedText(shownChorus?"Free-running modulation":"Independent dry / wet",114,401,237,15,juce::Justification::centredLeft,1);
     }
     g.setColour(skin.outline);
     g.fillRoundedRectangle(27.f,446.f,669.f,1.f,.5f);

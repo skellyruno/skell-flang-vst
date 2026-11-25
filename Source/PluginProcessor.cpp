@@ -72,6 +72,10 @@ SkellFlangAudioProcessor::SkellFlangAudioProcessor()
                                 .withOutput("Output",juce::AudioChannelSet::stereo(),true)),
   parameters(*this,nullptr,"SKELLFLANG",createLayout()) {
     parameters.state.setProperty("presetName","INIT",nullptr);
+    for(auto* q:getParameters())if(auto* ranged=dynamic_cast<juce::RangedAudioParameter*>(q)){
+        const auto id=ranged->getParameterID();
+        if(const auto* value=parameters.getRawParameterValue(id))rawCache.emplace(id.toStdString(),value);
+    }
 }
 bool SkellFlangAudioProcessor::isBusesLayoutSupported(const BusesLayout& l)const {
     const auto input=l.getMainInputChannelSet();
@@ -116,8 +120,8 @@ void SkellFlangAudioProcessor::prepareToPlay(double sr,int) {
     setLatencySamples(0); // No artificial PDC mismatch between dry and wet.
 }
 float SkellFlangAudioProcessor::raw(const char* id)const noexcept {
-    const auto* v=parameters.getRawParameterValue(id);
-    return v?v->load(std::memory_order_relaxed):0;
+    const auto it=rawCache.find(id);
+    return it!=rawCache.end()?it->second->load(std::memory_order_relaxed):0.f;
 }
 skellflang::classicchorus::State SkellFlangAudioProcessor::classicChorusSettings() const noexcept {
     auto s=skellflang::classicchorus::defaults;
@@ -171,18 +175,26 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
     const int selected=std::clamp(int(raw("mode")),0,7);
     if(selected!=active){previous=active;active=selected;remaining=layered?0:transition;}
     const int target=std::clamp(int(raw("morphTarget")),0,7);
-    const auto primary=settings(active), secondary=settings(target), former=settings(previous);
+    const auto primary=layered?skellflang::Controls{}:settings(active);
+    const auto secondary=layered?skellflang::Controls{}:settings(target);
+    const auto former=layered?skellflang::Controls{}:settings(previous);
     std::array<skellflang::Controls,5> layerControls{};
+    bool anyLayerTarget=false,allSettled=true;
+    int soloIndex=-1,enabledCount=0;
     for(size_t k=0;k<layerModes.size();++k) {
-        if(layered)layerControls[k]=settings(layerModes[k]);
-        const bool enabled=raw(layerParameterIDs[k])>.5f;
-        layerGains[k].setTargetValue(layered&&enabled?1.f:0.f);
+        const bool enabled=layered&&raw(layerParameterIDs[k])>.5f;
+        layerGains[k].setTargetValue(enabled?1.f:0.f);
+        if(enabled){anyLayerTarget=true;soloIndex=int(k);++enabledCount;}
+        allSettled=allSettled&&!layerGains[k].isSmoothing();
+        if(layered&&(enabled||layerGains[k].getCurrentValue()>0.f)&&layerModes[k]!=0&&layerModes[k]!=6)
+            layerControls[k]=settings(layerModes[k]);
     }
+    const bool settledSolo=layered&&allSettled&&enabledCount==1;
     // Host automation can temporarily toggle all five switches off within
     // a block: process the focused mode instead of emitting an abrupt silence.
     const int fallbackLayer=std::find(layerModes.begin(),layerModes.end(),active)
                                !=layerModes.end()?active:0;
-    const auto fallbackControls=settings(fallbackLayer);
+    const auto fallbackControls=layered&&!anyLayerTarget?settings(fallbackLayer):skellflang::Controls{};
     dryMix.setTargetValue(curve(raw("dry")));wetMix.setTargetValue(curve(raw("wet")));
     outputMix.setTargetValue(juce::Decibels::decibelsToGain(raw("output")));
     powerMix.setTargetValue(raw("power")>.5f?1.f:0.f);
@@ -192,13 +204,13 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
     float peakL=0,peakR=0;
     auto* left=buffer.getWritePointer(0);
     auto* right=channels>1?buffer.getWritePointer(1):nullptr;
-    const bool wantsClassic=(layered&&(raw("layerChorus")>.5f||layerGains[0].getCurrentValue()>0.f||fallbackLayer==0))||
+    const bool wantsClassic=(layered&&(raw("layerChorus")>.5f||layerGains[0].getCurrentValue()>0.f||(!anyLayerTarget&&fallbackLayer==0)))||
         (!layered&&(active==0||(target==0&&(requestedMorph>0.f||morphMix.getCurrentValue()>0.f))||(previous==0&&remaining>0)));
     classicChorus.beginBlock(wantsClassic,classicChorusSettings());
 #if defined(SKELLFLANG_RAW_ENGINE)
     const bool exclusiveNative=rawFlangusExclusive();
     const bool wantsNative=exclusiveNative || (layered &&
-        (raw("layerFlangus")>.5f||layerGains[2].getCurrentValue()>0.f||fallbackLayer==6)) ||
+        (raw("layerFlangus")>.5f||layerGains[2].getCurrentValue()>0.f||(!anyLayerTarget&&fallbackLayer==6))) ||
         (!layered&&(active==6 || (target==6&&(requestedMorph>0.f||morphMix.getCurrentValue()>0.f)) || (previous==6&&remaining>0)));
     rawFlangus.beginBlock(wantsNative,rawFlangusSettings());
 #endif
@@ -236,7 +248,23 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
 #if defined(SKELLFLANG_RAW_ENGINE)
         float nativeFraction=0.f;
 #endif
-        if(layered) {
+        if(settledSolo) {
+            // The common recording case: exactly one settled layer. Do not
+            // run dummy native bank entries or sum/divide a one-item mixer.
+            const auto k=std::size_t(soloIndex);
+            const int mode=layerModes[k];
+            if(mode==0)classicFraction=1.f;
+#if defined(SKELLFLANG_RAW_ENGINE)
+            else if(mode==6)nativeFraction=1.f;
+#endif
+            else {
+                auto controls=controlSmoothers[size_t(mode)].next(layerControls[k]);
+                controls.pitch=pitchTracker.pitch();controls.confidence=pitchTracker.conf();
+                wet=engines.process(mode,a,b,controls);
+                if(mode!=4)wet=skellflang::stereoCrossfeed(wet[0],wet[1],cross);
+            }
+            morphMix.getNextValue();
+        } else if(layered) {
             float sum=0.f;
             // Independent DSP state for each engine. Mix only wet signals;
             // the dry channel is added exactly once below.
@@ -244,6 +272,12 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
                 const float gain=layerGains[k].getNextValue();
                 if(gain<1.0e-5f)continue;
                 const int mode=layerModes[k];
+                // Native paths render their own full mix; their dummy bank
+                // entries and generic controls do not contribute a signal.
+                if(mode==0){classicFraction=gain;sum+=gain;continue;}
+#if defined(SKELLFLANG_RAW_ENGINE)
+                if(mode==6){nativeFraction=gain;sum+=gain;continue;}
+#endif
                 auto controls=controlSmoothers[size_t(mode)].next(layerControls[k]);
                 controls.pitch=pitchTracker.pitch();
                 controls.confidence=pitchTracker.conf();
@@ -251,10 +285,6 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
                 // Orbit revision 4 controls its own stereo field.
                 if(mode!=4)
                     effect=skellflang::stereoCrossfeed(effect[0],effect[1],cross);
-#if defined(SKELLFLANG_RAW_ENGINE)
-                if(mode==6)nativeFraction=gain;
-                if(mode==0)classicFraction=gain;
-#endif
                 wet[0]+=gain*effect[0];
                 wet[1]+=gain*effect[1];
                 sum+=gain;

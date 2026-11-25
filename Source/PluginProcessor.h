@@ -8,6 +8,8 @@
 #include <SkellCore/WorldLink.h>
 #include <array>
 #include <atomic>
+#include <map>
+#include <string>
 
 class SkellFlangAudioProcessor final : public juce::AudioProcessor {
 public:
@@ -64,6 +66,7 @@ public:
         }
     } meters;
 private:
+    std::map<std::string,const std::atomic<float>*,std::less<>> rawCache;
     float raw(const char*) const noexcept;
     skellflang::Controls settings(int mode) const noexcept;
     skellflang::EngineBank engines;
