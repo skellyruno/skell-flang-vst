@@ -1,0 +1,7 @@
+# Enhanced Motion trial
+Enable Settings > Enhanced Motion / Orbit (A/B) after choosing any existing factory sound. Default OFF. Existing factory sounds and state without the appended enhancedMotion ID remain legacy. The toggle is smoothed over 20 ms. No new program identity, no mode renumbering, no replacement of the private native Flangus algorithm.
+- Chorus / legacy Flangus / Dimension: maintain separate continuous fractional-rate phase to prevent wrap discontinuities (inspired by the native Flangus motion topology).
+- Flanger: 8 ms attack / 80 ms release follower replaces audio-rate rectified delay modulation at full enhanced setting.
+- Orbit: clustered moving voices, constant-power pan, depth-dependent interaural timing, distance movement, far-ear/rear shading, less input saturation. Not a measured HRTF or a binaural renderer. Existing ellipse, radius, rate, air and spread continue to affect the motion.
+- Native exclusive Flangus remains unchanged; the new option is for the rack modes only.
+Portable test covers five rates, maximum-order orbit movement, anti-phase preservation, depth sensitivity, and all five modes during quality automation. Listening and performance approval remain open. No private source or audio included.

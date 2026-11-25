@@ -992,6 +992,8 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         const auto* active=processor.parameters.getRawParameterValue("power");
         const bool powered=active&&active->load(std::memory_order_relaxed)>.5f;
         menu.addItem(1,"Effect enabled",true,powered);
+        const auto* enhanced=processor.parameters.getRawParameterValue("enhancedMotion");
+        menu.addItem(66,"Enhanced Motion / Orbit (A/B)",true,enhanced&&enhanced->load(std::memory_order_relaxed)>.5f);
 #if defined(SKELLFLANG_RAW_ENGINE)
         menu.addSeparator();
         menu.addSectionHeader("SKELLY RAW FLANGUS / TRIAL");
@@ -1039,7 +1041,14 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
                 if(item==62){safeEditor->openRawEntry();return;}
                 if(item>=63&&item<=65){safeEditor->chooseRawFile(item!=63,item==65);return;}
 #endif
-                if(item==50) {
+                if(item==66) {
+                    if(auto* v=safeEditor->processor.parameters.getParameter("enhancedMotion")) {
+                        v->beginChangeGesture();
+                        v->setValueNotifyingHost(v->getValue()>.5f?0.f:1.f);
+                        v->endChangeGesture();
+                        safeEditor->markPresetCustom();
+                    }
+                } else if(item==50) {
                     // UI thread only; never send networking or thread actions
                     // through processBlock or JUCE parameter automation.
                     if(safeEditor->processor.worldLink.requested())

@@ -56,6 +56,7 @@ State::ParameterLayout SkellFlangAudioProcessor::createLayout(){
             skell::flangusfx::rawMin[k],skell::flangusfx::rawMax[k],skell::flangusfx::defaults[k]));
     }
 #endif
+    boolean(p,"enhancedMotion","Enhanced Motion / Orbit",false);
     return p;
 }
 SkellFlangAudioProcessor::SkellFlangAudioProcessor()
@@ -122,6 +123,7 @@ skellflang::RawFlangusPath::State SkellFlangAudioProcessor::rawFlangusSettings()
 #endif
 skellflang::Controls SkellFlangAudioProcessor::settings(int mode)const noexcept {
     skellflang::Controls p;
+    p.motionQuality=raw("enhancedMotion");
     p.mode=mode;p.order=std::clamp(int(raw("order")),1,8);
     p.depth=raw("depth");p.speed=raw("speed");p.delay=raw("delay");
     p.spread=raw("spread");p.cross=raw("cross");
@@ -317,7 +319,6 @@ void SkellFlangAudioProcessor::setStateInformation(const void* ptr,int size) {
             for(int i=0;i<tree.getNumChildren();++i)
                 if(tree.getChild(i).getProperty("id").toString()=="layerMode")
                     modern=true;
-#if defined(SKELLFLANG_RAW_ENGINE)
             // Missing appended IDs must not inherit settings from a previously loaded trial.
             const auto addMissing=[&](const char* id,float value) {
                 for(int i=0;i<tree.getNumChildren();++i)
@@ -326,6 +327,8 @@ void SkellFlangAudioProcessor::setStateInformation(const void* ptr,int size) {
                 child.setProperty("id",id,nullptr);child.setProperty("value",value,nullptr);
                 tree.appendChild(child,nullptr);
             };
+            addMissing("enhancedMotion",0.f);
+#if defined(SKELLFLANG_RAW_ENGINE)
             addMissing(skellflang::RawFlangusPath::enabledId,0.f);
             // Preserve the audible selection of the original exclusive trial.
             if(!tree.hasProperty("rawRoutingVersion")) {
@@ -389,7 +392,7 @@ void SkellFlangAudioProcessor::applyFactoryPreset(int number) {
         {"layerOrbit",p.mode==4?1.f:0.f},
         {"layerDimension",p.mode==7?1.f:0.f},
         {"lfoShape",0.f},
-        {"lfoSync",0.f},{"output",0.f},{"power",1.f}
+        {"lfoSync",0.f},{"output",0.f},{"power",1.f},{"enhancedMotion",0.f}
     };
 #if defined(SKELLFLANG_RAW_ENGINE)
     if(auto* enabled=parameters.getParameter(skellflang::RawFlangusPath::enabledId)) {

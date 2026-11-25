@@ -50,6 +50,7 @@ struct Controls {
     float pitch=220.f, confidence=0.f;
     double bpm=120.0;
     bool sync=false;
+    float motionQuality=0.f; // opt-in, legacy is exactly zero
 };
 // SPEED chooses tempo division. LFO SHAPE must affect waveform only, never rate.
 inline double lfoFrequency(const Controls& p) noexcept {
@@ -85,6 +86,7 @@ public:
     void prepare(double rate) noexcept {
         coefficient=float(1.-std::exp(-1./(std::max(8000.,rate)*.004)));
         initialized=false;
+        qualityStep=float(1./(std::max(8000.,rate)*.02));
     }
     Controls next(const Controls& target) noexcept {
         if(!initialized){state=target;initialized=true;}
@@ -95,6 +97,7 @@ public:
         chase(state.delay,target.delay); chase(state.spread,target.spread);
         chase(state.cross,target.cross); chase(state.feedback,target.feedback);
         chase(state.tone,target.tone);
+        state.motionQuality+=std::clamp(bound(target.motionQuality)-state.motionQuality,-qualityStep,qualityStep);
         for(int i=0;i<4;++i)chase(state.extras[i],target.extras[i]);
         state.mode=target.mode;state.order=target.order;
         state.shape=target.shape;state.root=target.root;state.scale=target.scale;
@@ -104,7 +107,7 @@ public:
     }
 private:
     Controls state{};
-    float coefficient=.004f;
+    float coefficient=.004f,qualityStep=.001f;
     bool initialized=false;
 };
 
@@ -230,7 +233,7 @@ class EngineBank {
             fbAlpha=float(1.-std::exp(-1./(std::max(8000.,sr)*.008)));
         }
         float tap(int ch,float input,double delaySamples,const Controls& p,
-                  bool transparentInput=false) noexcept {
+                  float transparentInput=0.f) noexcept {
             // 3.5 ms one-pole slew prevents fractional-delay zippering on
             // sudden automation while preserving normal chorus/flanger motion.
             const double goal=std::isfinite(delaySamples)?std::max(3.,delaySamples):3.;
@@ -246,9 +249,14 @@ class EngineBank {
             // every pass, producing audible harmonics even with feedback=0.
             // Saturate only recirculated feedback for the refreshed engines.
             // Keep the legacy path exact for Orbit and restored older modes.
-            const float send=transparentInput
-                ? input+saturate(low[ch]*fb[ch])
-                : saturate(input+low[ch]*fb[ch]);
+            const float feedback=low[ch]*fb[ch];
+            float send;
+            if(transparentInput>=1.f)send=input+saturate(feedback);
+            else if(transparentInput<=0.f)send=saturate(input+feedback);
+            else {
+                const float old=saturate(input+feedback);
+                send=old+transparentInput*(input+saturate(feedback)-old);
+            }
             delay[ch].write(send);
             return d;
         }
@@ -266,7 +274,7 @@ public:
         keyCacheRoot=-1;keyCacheScale=-1;cachedSpread=-1.;
         tunedRatio=1.;
         for(auto& pair:formants)for(auto& f:pair)f={};
-        grains={};phase.fill(0);voicePhase.fill(0);tunedDelay.fill(0);samples.fill(0);grainClock=0;rng=0xFA11B00Du;
+        grains={};phase.fill(0);continuousPhase.fill(0);flangerEnvelope=0.f;voicePhase.fill(0);tunedDelay.fill(0);samples.fill(0);grainClock=0;rng=0xFA11B00Du;
     }
     std::array<float,2> process(int which,float l,float r,const Controls& p) noexcept {
         const int mode=std::clamp(which,0,7);
@@ -276,6 +284,23 @@ public:
         const double cycle=phase[mode];
         phase[mode]+=step;
         if(phase[mode]>=1)phase[mode]-=1;
+        // Rational secondary rates .41, 1.71, .52 and .58 all repeat
+        // exactly over 100 primary cycles; no fractional-rate wrap jump.
+        const double continuous=continuousPhase[mode];
+        continuousPhase[mode]+=step;
+        if(continuousPhase[mode]>=100.)continuousPhase[mode]-=100.;
+        const float quality=bound(p.motionQuality);
+        const auto wave=[&](double ratio,double offset) noexcept {
+            const double old=std::sin(2*pi*(cycle*ratio+offset));
+            if(quality<=0.f)return old;
+            const double modern=std::sin(2*pi*(continuous*ratio+offset));
+            return quality>=1.f?modern:old+quality*(modern-old);
+        };
+        if(mode==1) {
+            const float env=std::min(1.f,.5f*(std::abs(l)+std::abs(r)));
+            const float coefficient=float(1./(1.+sr*(env>flangerEnvelope?.008:.080)));
+            flangerEnvelope+=coefficient*(env-flangerEnvelope);
+        }
         ++samples[mode];
         auto mod=[&](double offset) {
             const double q=cycle+offset-std::floor(cycle+offset);
@@ -375,7 +400,7 @@ public:
                 // revised chorus engine. A slow secondary wave now provides
                 // subtle staggered movement without changing the main detune.
                 const double ensemble=.65*bound(p.extras[3])*
-                    std::sin(2*pi*(cycle*.41+double(i)/std::max(1,n)));
+                    wave(.41,double(i)/std::max(1,n));
                 const double dL=sr*.001*(baseMs+depthMs*leftWave+spreadMs+ensemble);
                 const double dR=sr*.001*(baseMs+depthMs*rightWave-spreadMs-ensemble);
                 const float dl=v.tap(0,l,dL,p,true),dr=v.tap(1,r,dR,p,true);
@@ -386,7 +411,8 @@ public:
                 outL+=v.air[0]*(1.f-pan);
                 outR+=v.air[1]*(1.f+pan);
             } else if(mode==1) { // FLANGER: short comb with controllable stereo phase
-                const float env=std::min(1.f,.5f*(std::abs(l)+std::abs(r)));
+                const float instant=std::min(1.f,.5f*(std::abs(l)+std::abs(r)));
+                const float env=quality<=0.f?instant:instant+quality*(flangerEnvelope-instant);
                 const float travel=.25f+1.45f*bound(p.extras[0]);
                 const float phaseOffset=float(i)*bound(p.spread)/float(n);
                 const float a=mod(phaseOffset);
@@ -405,8 +431,8 @@ public:
                 const double offset=double(i)*bound(p.spread)/std::max(1,n);
                 const double slowL=std::sin(2*pi*(cycle+offset));
                 const double slowR=std::sin(2*pi*(cycle+offset+.15+.18*bound(p.extras[1])));
-                const double fastL=std::sin(2*pi*(cycle*1.71+offset*.71));
-                const double fastR=std::sin(2*pi*(cycle*1.71+offset*.71+.19));
+                const double fastL=wave(1.71,offset*.71);
+                const double fastR=quality<=0.f?std::sin(2*pi*(cycle*1.71+offset*.71+.19)):wave(1.71,offset*.71+.19);
                 const double base=3.+12.*bound(p.delay)+4.*location*bound(p.spread);
                 const double travel=(.5+4.*bound(p.depth))*(.45+.55*bound(p.extras[0]));
                 const double jet=(.2+2.2*bound(p.extras[2]))*bound(p.depth);
@@ -421,8 +447,8 @@ public:
             } else if(mode==7) { // DIMENSION: slow short-delay stereo doubling
                 const float location=n>1 ? float(i)/float(n-1) : .5f;
                 const double offset=double(i)/double(n);
-                const double waveL=std::sin(2*pi*(cycle*.52+offset));
-                const double waveR=std::sin(2*pi*(cycle*.58+offset+.33));
+                const double waveL=wave(.52,offset);
+                const double waveR=quality<=0.f?std::sin(2*pi*(cycle*.58+offset+.33)):wave(.58,offset+.33);
                 const double base=11.+18.*bound(p.delay);
                 const double motion=(.18+1.8*bound(p.depth))*(.6+.4*bound(p.extras[0]));
                 const double separation=5.*bound(p.spread)*location*bound(p.extras[1]);
@@ -435,25 +461,60 @@ public:
                 outL+=v.air[0]*(1.f-pan);
                 outR+=v.air[1]*(1.f+pan);
             } else { // ORBIT: amplitude / ITD / air-distance approximation.
+                // Keep the approved legacy geometry exactly at quality=0.
                 const float angle=float(2*pi*(cycle+double(i)/n*p.spread));
                 const float x=std::cos(angle),y=std::sin(angle)*(1.f-.6f*bound(p.extras[1]));
                 const float radius=.25f+.75f*bound(p.extras[0]);
-                const double d=sr*.001*(3.+6.*radius);
-                const double itd=sr*.001*(.2+.9*bound(p.cross))*radius*x;
+                double d=sr*.001*(3.+6.*radius);
+                double itd=sr*.001*(.2+.9*bound(p.cross))*radius*x;
+                float gainL=1-.45f*x,gainR=1+.45f*x;
+                float coeff=.15f+.7f*(1-bound(p.extras[2])*.6f);
+                float distanceGain=.9f+.1f*y;
+                float coeffR=coeff;
+                if(quality>0.f) {
+                    // Cluster the orbiting voices rather than distribute an
+                    // entire ring: otherwise high Order cancels pan motion.
+                    const double location=n>1?double(i)/double(n-1)-.5:0.;
+                    const double a=2*pi*(cycle+location*.24*bound(p.spread));
+                    const float side=float(std::cos(a)),front=float(std::sin(a))*(1.f-.6f*bound(p.extras[1]));
+                    const float depth=bound(p.depth);
+                    const float pan=.88f*side*depth;
+                    const float newL=std::sqrt(1.f-pan),newR=std::sqrt(1.f+pan);
+                    // Interaural delay plus gently changing distance (Doppler).
+                    const double centre=sr*.001*(3.+6.*radius+6.*bound(p.delay)-2.0*radius*depth*front);
+                    const double ear=sr*.001*(.12+.54*bound(p.cross))*radius*depth*side;
+                    // Far ear and rear hemisphere lose high frequencies.
+                    const float shadow=bound(p.extras[2])*depth;
+                    const auto air=[&](float farEar) noexcept {
+                        const float cut=16000.f/(1.f+shadow*(2.4f*(1.f-front)*.5f+2.2f*farEar));
+                        const double omega=2*pi*cut/sr;
+                        return float(omega/(1.+omega));
+                    };
+                    const float newDistance=.9f+.1f*radius*depth*front;
+                    d+=quality*(centre-d);itd+=quality*(ear-itd);
+                    gainL+=quality*(newL-gainL);gainR+=quality*(newR-gainR);
+                    coeffR+=quality*(air(std::max(0.f,-side))-coeffR);
+                    coeff+=quality*(air(std::max(0.f,side))-coeff);
+                    distanceGain+=quality*(newDistance-distanceGain);
+                }
                 // Keep each source channel independent. Summing L+R before
                 // orbiting erased anti-phase stereo and could go completely silent.
-                const float a=v.tap(0,l,d+itd,p)*(1-.45f*x);
-                const float b=v.tap(1,r,d-itd,p)*(1+.45f*x);
-                const float coeff=.15f+.7f*(1-bound(p.extras[2])*.6f);
-                v.air[0]+=coeff*(a-v.air[0]);v.air[1]+=coeff*(b-v.air[1]);
-                outL+=v.air[0]*(.9f+.1f*y);outR+=v.air[1]*(.9f+.1f*y);
+                const float a=v.tap(0,l,d+itd,p,quality)*gainL;
+                const float b=v.tap(1,r,d-itd,p,quality)*gainR;
+                v.air[0]+=coeff*(a-v.air[0]);v.air[1]+=coeffR*(b-v.air[1]);
+                outL+=v.air[0]*distanceGain;outR+=v.air[1]*distanceGain;
             }
         }
         // Only the four current non-Orbit delay modes use the cleaner knee.
         // Orbit's previously approved sound and old saved modes stay unchanged.
-        return mode==4
-            ? std::array<float,2>{saturate(outL/n),saturate(outR/n)}
-            : std::array<float,2>{transparentWet(outL/n),transparentWet(outR/n)};
+        if(mode==4) {
+            const float l=outL/n,r=outR/n;
+            if(quality<=0.f)return {saturate(l),saturate(r)};
+            if(quality>=1.f)return {transparentWet(l),transparentWet(r)};
+            const float a=saturate(l),b=saturate(r);
+            return {a+quality*(transparentWet(l)-a),b+quality*(transparentWet(r)-b)};
+        }
+        return {transparentWet(outL/n),transparentWet(outR/n)};
     }
 private:
     unsigned random() noexcept{rng^=rng<<13;rng^=rng>>17;rng^=rng<<5;return rng;}
@@ -505,7 +566,8 @@ private:
     std::array<double,8> keyFrequencies{};
     double cachedSpread=-1.,tunedRatio=1.;
     int keyCacheRoot=-1,keyCacheScale=-1;
-    std::array<double,8> phase{};
+    std::array<double,8> phase{},continuousPhase{};
+    float flangerEnvelope=0.f;
     std::array<double,8> voicePhase{},tunedDelay{};
     std::array<unsigned,8> samples{};
     int grainClock=0;uint32_t rng=0xFA11B00Du;
