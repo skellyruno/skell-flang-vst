@@ -36,7 +36,7 @@ int main() {
                 p.extras[0]=.62f;p.extras[1]=.78f;p.extras[2]=.93f;p.extras[3]=.79f;lo=15.;hi=25.;
             }
             skellflang::EngineBank bank;bank.prepare(rate);
-            const int frames=rate/10;std::vector<std::array<float,2>> impulse(size_t(frames),{});
+            const int frames=rate/10;std::vector<std::array<float,2>> impulse(static_cast<std::size_t>(frames));
             int first=-1;float peak=0.f;
             for(int i=0;i<frames;++i){
                 const auto y=bank.process(mode,i==0?.5f:0.f,i==0?.5f:0.f,p);
