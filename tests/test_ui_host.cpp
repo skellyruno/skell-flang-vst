@@ -701,6 +701,26 @@ int main(int argc,char** argv){
                processor.parameters.getRawParameterValue("layerOrbit")->load()>.5f,
                "Layer stack was not restored from saved FL Studio state");
 
+        // The appended trial parameter must recall, and loading a pre-trial
+        // session must not inherit the last loaded enhanced setting.
+        auto* enhanced=processor.parameters.getParameter("enhancedMotion");
+        verify(enhanced!=nullptr,"Missing enhanced motion parameter");
+        enhanced->setValueNotifyingHost(1.f);
+        juce::MemoryBlock trialState;
+        processor.getStateInformation(trialState);
+        processor.applyFactoryPreset(10);
+        verify(enhanced->getValue()==0.f,"Legacy factory selected experimental motion");
+        processor.setStateInformation(trialState.getData(),int(trialState.getSize()));
+        verify(enhanced->getValue()==1.f,"Enhanced motion recall failed");
+        auto oldTree=processor.parameters.copyState();
+        auto trialChild=oldTree.getChildWithProperty("id","enhancedMotion");
+        verify(trialChild.isValid(),"Trial parameter missing in state tree");
+        oldTree.removeChild(trialChild,nullptr);
+        juce::MemoryBlock oldSession;
+        if(auto xml=oldTree.createXml())juce::AudioProcessor::copyXmlToBinary(*xml,oldSession);
+        processor.setStateInformation(oldSession.getData(),int(oldSession.getSize()));
+        verify(enhanced->getValue()==0.f,"Pre-trial state inherited enhanced motion");
+
         // Audio must actually differ with two independent engines, without
         // duplicated dry gain or nonfinite output. Compare identical inputs.
         const auto measure=[&](bool layeredFlanger) {

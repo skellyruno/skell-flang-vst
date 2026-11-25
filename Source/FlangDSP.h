@@ -475,10 +475,12 @@ public:
                     // Cluster the orbiting voices rather than distribute an
                     // entire ring: otherwise high Order cancels pan motion.
                     const double location=n>1?double(i)/double(n-1)-.5:0.;
-                    const double a=2*pi*(cycle+location*.24*bound(p.spread));
+                    const double a=2*pi*(cycle+location*.16*bound(p.spread));
                     const float side=float(std::cos(a)),front=float(std::sin(a))*(1.f-.6f*bound(p.extras[1]));
                     const float depth=bound(p.depth);
-                    const float pan=.88f*side*depth;
+                    // Finite-slope eased depth: stronger movement at ordinary
+                    // factory settings, exactly zero at zero depth.
+                    const float pan=.98f*side*(1.f-(1.f-depth)*(1.f-depth)*(1.f-depth)*(1.f-depth));
                     const float newL=std::sqrt(1.f-pan),newR=std::sqrt(1.f+pan);
                     // Interaural delay plus gently changing distance (Doppler).
                     const double centre=sr*.001*(3.+6.*radius+6.*bound(p.delay)-2.0*radius*depth*front);
