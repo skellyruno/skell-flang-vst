@@ -14,19 +14,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Install licensed native Flangus dependency
-        shell: bash
         env:
           NATIVE_SOURCE_B64: ${{ secrets.SKELL_FLANGUS_SOURCE_B64 }}
-        run: |
-          if [ -f Source/NativeFlangus/Flangus.cpp ]; then exit 0; fi
-          if [ -z "$NATIVE_SOURCE_B64" ]; then
-            echo "::error::Native Flangus source required. Set repository secret SKELL_FLANGUS_SOURCE_B64."
-            exit 1
-          fi
-          printf '%s' "$NATIVE_SOURCE_B64" | base64 --decode > "$RUNNER_TEMP/native-flangus.zip"
-          python -c "import os,zipfile; zipfile.ZipFile(os.path.join(os.environ['RUNNER_TEMP'],'native-flangus.zip')).extractall('Source/NativeFlangus')"
-          rm -f "$RUNNER_TEMP/native-flangus.zip"
-          test -f Source/NativeFlangus/Flangus.cpp
+        run: python tools/install_native_dependency.py --required
       - name: Configure
         run: cmake -S . -B build -A x64 -DSKELLFLANG_BUILD_UI_SMOKE=ON
       - name: Build
@@ -89,19 +79,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Install licensed native Flangus dependency
-        shell: bash
         env:
           NATIVE_SOURCE_B64: ${{ secrets.SKELL_FLANGUS_SOURCE_B64 }}
-        run: |
-          if [ -f Source/NativeFlangus/Flangus.cpp ]; then exit 0; fi
-          if [ -z "$NATIVE_SOURCE_B64" ]; then
-            echo "::error::Native Flangus source required. Set repository secret SKELL_FLANGUS_SOURCE_B64."
-            exit 1
-          fi
-          printf '%s' "$NATIVE_SOURCE_B64" | base64 --decode > "$RUNNER_TEMP/native-flangus.zip"
-          python -c "import os,zipfile; zipfile.ZipFile(os.path.join(os.environ['RUNNER_TEMP'],'native-flangus.zip')).extractall('Source/NativeFlangus')"
-          rm -f "$RUNNER_TEMP/native-flangus.zip"
-          test -f Source/NativeFlangus/Flangus.cpp
+        run: python tools/install_native_dependency.py
       - name: Configure DSP tests
         run: cmake -S tests -B build-dsp -DCMAKE_BUILD_TYPE=Release
       - name: Build DSP tests
@@ -115,19 +95,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Install licensed native Flangus dependency
-        shell: bash
         env:
           NATIVE_SOURCE_B64: ${{ secrets.SKELL_FLANGUS_SOURCE_B64 }}
-        run: |
-          if [ -f Source/NativeFlangus/Flangus.cpp ]; then exit 0; fi
-          if [ -z "$NATIVE_SOURCE_B64" ]; then
-            echo "::error::Native Flangus source required. Set repository secret SKELL_FLANGUS_SOURCE_B64."
-            exit 1
-          fi
-          printf '%s' "$NATIVE_SOURCE_B64" | base64 --decode > "$RUNNER_TEMP/native-flangus.zip"
-          python -c "import os,zipfile; zipfile.ZipFile(os.path.join(os.environ['RUNNER_TEMP'],'native-flangus.zip')).extractall('Source/NativeFlangus')"
-          rm -f "$RUNNER_TEMP/native-flangus.zip"
-          test -f Source/NativeFlangus/Flangus.cpp
+        run: python tools/install_native_dependency.py
       - name: Configure address and undefined behavior sanitizers
         run: cmake -S tests -B build-san -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
       - name: Build sanitized tests

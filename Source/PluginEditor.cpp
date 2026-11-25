@@ -853,8 +853,7 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         button.onClick=[this,i,mode] {
 #if defined(SKELLFLANG_RAW_ENGINE)
             if(processor.rawFlangusExclusive()) {
-                // Clicking the already active native tab must not silently
-                // switch to legacy Flangus.
+                // Preserve a recalled exclusive native session until another tab is chosen.
                 if(mode==6){tabs[size_t(i)].setToggleState(true,juce::dontSendNotification);return;}
                 const auto edit=[this](const char* key,float value) {
                     if(auto* p=processor.parameters.getParameter(key)) {

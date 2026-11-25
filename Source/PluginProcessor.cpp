@@ -226,7 +226,7 @@ void SkellFlangAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juc
                 controls.pitch=pitchTracker.pitch();
                 controls.confidence=pitchTracker.conf();
                 auto effect=engines.process(mode,a,b,controls);
-                // Approved Orbit remains unaltered, including its stereo field.
+                // Orbit revision 4 controls its own stereo field.
                 if(mode!=4)
                     effect=skellflang::stereoCrossfeed(effect[0],effect[1],cross);
 #if defined(SKELLFLANG_RAW_ENGINE)
@@ -352,8 +352,8 @@ void SkellFlangAudioProcessor::setStateInformation(const void* ptr,int size) {
     if(auto xml=getXmlFromBinary(ptr,size)) {
         auto tree=juce::ValueTree::fromXml(*xml);
         if(tree.isValid() && tree.hasType(parameters.state.getType())) {
-            // Pre-layer projects have no layerMode ID. Retain exactly their
-            // legacy Mode + Morph sound when restoring FL Studio projects.
+            // Pre-layer projects have no layerMode ID. Retain their routing;
+            // Flangus and Orbit sounds migrate to the newly selected engines.
             bool modern=false;
             for(int i=0;i<tree.getNumChildren();++i)
                 if(tree.getChild(i).getProperty("id").toString()=="layerMode")

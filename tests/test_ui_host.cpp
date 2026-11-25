@@ -62,7 +62,8 @@ int main(int argc,char** argv){
             };
             processor.applyFactoryPreset(7);
             verify(processor.rawFlangusRequested(),"Factory Flangus must select the native engine by default");
-            set("mode",6);set(P::enabledId,1);
+            set("mode",6);set(P::enabledId,0);
+            verify(processor.rawFlangusRequested(),"Retired ID must not disable native Flangus");
             const std::array<const char*,8> controls{{"fader-order","fader-depth","fader-speed","fader-delay","fader-spread","fader-cross","fader-dry","fader-wet"}};
             const P::State signedState{{9,1024,768,8,128,-128,-96,96}};
             for(std::size_t k=0;k<8;++k)set(P::ids[k],float(signedState[k]));
@@ -82,12 +83,27 @@ int main(int argc,char** argv){
             click(findButton(*editor,"FLANGUS"),"Native Flangus tab missing");
             verify(processor.rawFlangusRequested(),"Selected native tab disabled native mode");
             verify(!editor->findChildWithID("lfo-wave")->isVisible()&&!editor->findChildWithID("tone-0")->isVisible(),"Ignored control visible in native mode");
+            set(P::enabledId,1);
             juce::MemoryBlock saved;
             processor.getStateInformation(saved);
             processor.applyFactoryPreset(0);
             verify(!processor.rawFlangusRequested(),"Legacy factory unexpectedly selected native");
             processor.setStateInformation(saved.getData(),int(saved.getSize()));
             verify(processor.rawFlangusRequested()&&processor.rawFlangusSettings()==signedState,"Native state roundtrip failed");
+            auto preNative=processor.parameters.copyState();
+            preNative.removeProperty("rawRoutingVersion",nullptr);
+            for(int i=preNative.getNumChildren()-1;i>=0;--i) {
+                const auto child=preNative.getChild(i);
+                const auto id=child.getProperty("id").toString();
+                if(id.startsWith("skellyRaw"))preNative.removeChild(i,nullptr);
+            }
+            preNative.getChildWithProperty("id","depth").setProperty("value",.5f,nullptr);
+            preNative.getChildWithProperty("id","order").setProperty("value",5.f,nullptr);
+            juce::MemoryBlock migrated;
+            if(auto xml=preNative.createXml())juce::AudioProcessor::copyXmlToBinary(*xml,migrated);
+            processor.setStateInformation(migrated.getData(),int(migrated.getSize()));
+            verify(processor.rawFlangusRequested()&&processor.rawFlangusSettings()[0]==5&&processor.rawFlangusSettings()[1]==512,"Old normalized Flangus state did not migrate to native");
+            processor.setStateInformation(saved.getData(),int(saved.getSize()));
             // Check the real processor against signed dry-only source, without legacy dry/wet.
             set(P::ids[6],-128);set(P::ids[7],0);set("output",0);set("power",1);
             processor.prepareToPlay(48000.,4096);
@@ -96,6 +112,14 @@ int main(int argc,char** argv){
             for(int i=0;i<4096;++i){nativeAudio.setSample(0,i,.25f);nativeAudio.setSample(1,i,-.5f);}
             processor.processBlock(nativeAudio,noMidi);
             for(int i=0;i<4096;++i)verify(nativeAudio.getSample(0,i)==-.25f&&nativeAudio.getSample(1,i)==.5f,"Native signed dry or exclusive routing failed");
+            // With two dry-only layers, the full rack is the weighted average
+            // of native inverted dry and the other layer's positive dry.
+            set("layerChorus",1);set("dry",1);set("wet",0);
+            processor.prepareToPlay(48000.,4096);
+            for(int i=0;i<4096;++i){nativeAudio.setSample(0,i,.25f);nativeAudio.setSample(1,i,-.5f);}
+            processor.processBlock(nativeAudio,noMidi);
+            for(int i=0;i<4096;++i)verify(std::abs(nativeAudio.getSample(0,i))<1.e-6f&&std::abs(nativeAudio.getSample(1,i))<1.e-6f,"Native stack doubled or failed to replace dry signal");
+            set("layerChorus",0);
             processor.reset();
             processor.prepareToPlay(22050.,32);
             refresh();
@@ -328,8 +352,8 @@ int main(int argc,char** argv){
         legacyPreset(7);
         verify(int(processor.parameters.getRawParameterValue("mode")->load())==6,
                "Flangus preset did not select Flangus");
-        verify(processor.parameters.getRawParameterValue("extra0")->load()>.6f,
-               "Flangus preset did not load its own sound macros");
+        verify(processor.rawFlangusSettings()==skellflang::rawsettings::defaults,
+               "Flangus factory did not load native defaults");
         verify(processor.parameters.state.getProperty("presetName").toString()=="Flangus Glow",
                "Preset title was not saved");
         verify(processor.getLatencySamples()==0,"Unexpected host delay compensation");
