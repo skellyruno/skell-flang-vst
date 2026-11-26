@@ -1,4 +1,5 @@
 #include "../Source/PluginProcessor.h"
+#include "../Source/FLFactoryPresets.h"
 #include "../Source/PluginEditor.h"
 #include <JuceHeader.h>
 #include <SkellCore/HeadlessUIRenderer.h>
@@ -872,6 +873,30 @@ int main(int argc,char** argv){
         verify(processor.parameters.state.getProperty("presetName").toString()=="Flangus Jet",
                "Restored session lost preset identity");
 
+        // Verify new factory choices and complete state recall.
+        for(int index:{16,17,18}) {
+            processor.applyFactoryPreset(index);
+            const bool isFlangus=index==18;
+            const auto* name=index==16?skellflang::flfactory::chorusDefaultName:
+                index==17?skellflang::flfactory::chorusLowEnhanceName:skellflang::flfactory::flangusDefaultName;
+            const auto expectedChorus=index==17?skellflang::flfactory::chorusLowEnhance:skellflang::flfactory::chorusDefault;
+            const auto check=[&] {
+                verify(processor.parameters.state.getProperty("presetName").toString()==name,"FL factory name lost");
+                verify(int(processor.parameters.getRawParameterValue("mode")->load())==(isFlangus?6:0),"FL factory wrong engine");
+                for(std::size_t k=0;k<SkellFlangAudioProcessor::layerModes.size();++k)
+                    verify((processor.parameters.getRawParameterValue(SkellFlangAudioProcessor::layerParameterIDs[k])->load()>.5f)==(SkellFlangAudioProcessor::layerModes[k]==(isFlangus?6:0)),"FL factory not solo");
+#if defined(SKELLFLANG_RAW_ENGINE)
+                if(isFlangus)verify(processor.rawFlangusSettings()==skellflang::flfactory::flangusDefault,"FL Flangus raw settings mismatch");
+#endif
+                if(!isFlangus)verify(processor.classicChorusSettings()==expectedChorus,"FL Chorus raw settings mismatch");
+                verify(processor.parameters.getRawParameterValue("output")->load()==0.f,"FL factory unexpected output gain");
+            };
+            check();juce::MemoryBlock saved;processor.getStateInformation(saved);
+            processor.applyFactoryPreset(5);
+            processor.setStateInformation(saved.getData(),int(saved.getSize()));check();
+        }
+        processor.applyFactoryPreset(0);
+        verify(processor.classicChorusSettings()==skellflang::classicchorus::defaults&&processor.parameters.state.getProperty("presetName").toString()=="INIT","Existing INIT changed");
         // New layer flags must round-trip through a VST3 project state.
         legacyPreset(7); // Flangus Glow
         auto* orbitFlag=processor.parameters.getParameter("layerOrbit");

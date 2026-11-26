@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include "FLPresetImport.h"
+#include "FLFactoryPresets.h"
 #include <charconv>
 #include <algorithm>
 #include <cmath>
@@ -50,12 +51,13 @@ const juce::Colour tints[]{
     juce::Colour::fromRGB(154,244,77),  // flangus / skell neon lime
     juce::Colour::fromRGB(246,202,131)  // dimension / warm ivory-gold
 };
-constexpr std::array<const char*,16> presets{
+constexpr std::array<const char*,19> presets{
     "INIT","Velvet Chorus","Wide Vocal Double","Neon Ensemble",
     "Satin Flanger","Jet Sweep","Polarity Comb",
     "Flangus Glow","Flangus Motion","Flangus Jet",
     "Orbit Halo","Orbit Carousel","Orbit Pulse",
-    "Dimension Air","Dimension Doubler","Dimension Width"
+    "Dimension Air","Dimension Doubler","Dimension Width",
+    skellflang::flfactory::chorusDefaultName,skellflang::flfactory::chorusLowEnhanceName,skellflang::flfactory::flangusDefaultName
 };
 void styleSlider(juce::Slider& slider,bool vertical){
     slider.setSliderStyle(vertical?juce::Slider::LinearVertical:
@@ -962,13 +964,20 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
                 sounds.addItem(index+1,presets[size_t(index)],true,
                                selected==presets[size_t(index)]);
             }
+            if(group==0||group==2) {
+                sounds.addSeparator();
+                const int first=group==0?skellflang::flfactory::chorusDefaultIndex:skellflang::flfactory::flangusDefaultIndex;
+                const int last=group==0?skellflang::flfactory::chorusLowEnhanceIndex:first;
+                for(int index=first;index<=last;++index)
+                    sounds.addItem(index+1,presets[size_t(index)],true,selected==presets[size_t(index)]);
+            }
             menu.addSubMenu(groups[group],sounds,true);
         }
         menu.showMenuAsync(juce::PopupMenu::Options()
                              .withTargetComponent(&preset).withMinimumWidth(201)
                              .withMaximumNumColumns(1),
             [safeEditor](int result){
-                if(safeEditor&&result>=1&&result<=16) {
+                if(safeEditor&&result>=1&&result<=int(presets.size())) {
                     safeEditor->processor.applyFactoryPreset(result-1);
                     safeEditor->updateMode();
                 }

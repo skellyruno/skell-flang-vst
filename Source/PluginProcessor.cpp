@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "FLFactoryPresets.h"
 #include "PluginEditor.h"
 #include <algorithm>
 #include <array>
@@ -528,7 +529,10 @@ void SkellFlangAudioProcessor::applyFactoryPreset(int number) {
         {"Orbit Pulse",      4,3,.36f,.68f,.37f,.45f,.35f,.76f,.68f,.07f,.81f,{.42f,.18f,.53f,.92f}},
         {"Dimension Air",    7,3,.31f,.32f,.52f,.80f,.08f,.77f,.62f,.01f,.89f,{.62f,.78f,.93f,.79f}},
         {"Dimension Doubler",7,4,.43f,.50f,.45f,.86f,.10f,.73f,.72f,.04f,.83f,{.73f,.91f,.80f,.85f}},
-        {"Dimension Width",  7,6,.54f,.34f,.65f,.98f,.12f,.70f,.75f,.10f,.76f,{.85f,1.f,.79f,.99f}}
+        {"Dimension Width",  7,6,.54f,.34f,.65f,.98f,.12f,.70f,.75f,.10f,.76f,{.85f,1.f,.79f,.99f}},
+        {skellflang::flfactory::chorusDefaultName,0,3,.38f,.39f,.42f,.50f,.08f,.78f,.48f,.05f,.78f,{.50f,.55f,.55f,.45f}},
+        {skellflang::flfactory::chorusLowEnhanceName,0,3,.38f,.39f,.42f,.50f,.08f,.78f,.48f,.05f,.78f,{.50f,.55f,.55f,.45f}},
+        {skellflang::flfactory::flangusDefaultName,6,5,.55f,.37f,.35f,.67f,.10f,.72f,.64f,.21f,.77f,{.68f,.65f,.43f,.67f}}
     };
     const auto& p=bank[std::clamp(number,0,int(std::size(bank))-1)];
     struct Edit { const char* id; float value; };
@@ -563,7 +567,7 @@ void SkellFlangAudioProcessor::applyFactoryPreset(int number) {
             {4,512,768,8,128,-32,96,96},
             {7,700,820,12,112,-24,96,100},
             {9,880,920,5,128,-48,96,104}};
-        const auto& native=nativeBank[std::clamp(number-7,0,2)];
+        const auto& native=number==skellflang::flfactory::flangusDefaultIndex?skellflang::flfactory::flangusDefault:nativeBank[std::clamp(number-7,0,2)];
         for(std::size_t k=0;k<native.size();++k)
             setNative(skellflang::RawFlangusPath::ids[k],float(native[k]));
     }
@@ -574,8 +578,9 @@ void SkellFlangAudioProcessor::applyFactoryPreset(int number) {
         value->endChangeGesture();
     }
     if(p.mode==0) {
-        const auto s=number==0?skellflang::classicchorus::defaults:
-            skellflang::classicchorus::migrate(p.depth,p.speed,p.delay,p.spread);
+        const auto s=number==skellflang::flfactory::chorusLowEnhanceIndex?skellflang::flfactory::chorusLowEnhance:
+            number==skellflang::flfactory::chorusDefaultIndex?skellflang::flfactory::chorusDefault:
+            number==0?skellflang::classicchorus::defaults:skellflang::classicchorus::migrate(p.depth,p.speed,p.delay,p.spread);
         for(std::size_t k=0;k<s.size();++k)
             if(auto* q=parameters.getParameter(skellflang::classicchorus::ids[k])) {
                 q->beginChangeGesture();q->setValueNotifyingHost(q->convertTo0to1(float(s[k])));q->endChangeGesture();

@@ -7,7 +7,7 @@
 #include <string_view>
 
 namespace skellflang::flpreset {
-// FL Studio 25.1 mixer and single-effect FST event envelopes. No plugin
+// FL Studio 25.1 mixer and 25.1/26.1.6 single-effect FST event envelopes. No plugin
 // loading, arbitrary signature scanning, or state changes on parse failure.
 inline constexpr std::size_t maximumBytes=16u*1024u*1024u;
 enum class Kind { chorus, flangus, flanger, other };
@@ -45,9 +45,19 @@ inline Error extract(const void* data,std::size_t size,Kind wanted,View& output)
     if((b[8]!=0x30&&b[8]!=0x40)||b[9]!=0)return Error::unsupported;
     if(le32(b+18)!=size-22)return Error::malformed;
     std::size_t pos=22,matches=0;View match{};Kind pending=Kind::other;bool descriptor=false;
+    bool standalone26=false,seenName=false,seen26Metadata=false;
     while(pos<size){
         const auto id=b[pos++];std::size_t n=0;
-        if(id<192)n=id<64?1u:id<128?2u:4u;
+        if(id<192) {
+            n=id<64?1u:id<128?2u:4u;
+            // Observed FL 26.1.6 standalone preset metadata: event AC carries
+            // exactly 01 01 00 before the C0 version string. Do not apply
+            // this exception to older envelopes or plugin state bytes.
+            if(id==172&&standalone26&&!seenName&&!seen26Metadata&&size-pos>=4&&
+                b[pos]==1&&b[pos+1]==1&&b[pos+2]==0&&b[pos+3]==192){
+                n=3;seen26Metadata=true;
+            }
+        }
         else {
             // FL event lengths use unsigned base-128 varints. Five bytes max,
             // checked before reading payload or advancing the cursor.
@@ -64,8 +74,9 @@ inline Error extract(const void* data,std::size_t size,Kind wanted,View& output)
         }
         if(n>size-pos)return Error::malformed;
         const View v{b+pos,n};pos+=n;
+        if(id==199&&b[8]==0x30&&!seenName&&v.size>=8&&v.data[v.size-1]==0&&std::memcmp(v.data,"26.1.6.",7)==0)standalone26=true;
         if(id==98){pending=Kind::other;descriptor=false;} // mixer slot boundary
-        else if(id==201){pending=identify(v);descriptor=false;} // internal name, UTF16LE
+        else if(id==201){pending=identify(v);descriptor=false;seenName=true;} // internal name, UTF16LE
         else if(id==212){descriptor=n==52;} // observed FL 25.1 plugin descriptor
         else if(id==213){ // native plugin data, paired with preceding name/descriptor
             if(pending==wanted&&wanted!=Kind::other){

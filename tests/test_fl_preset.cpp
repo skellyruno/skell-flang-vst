@@ -1,4 +1,5 @@
 #include "FLPresetImport.h"
+#include "FLFactoryPresets.h"
 #include <vector>
 #include <fstream>
 #include <iterator>
@@ -67,5 +68,34 @@ int main(int argc,char** argv){
     // Deterministic fuzz: mutate every byte, plus arbitrary short buffers.
     for(std::size_t i=0;i<b.size();++i){bad=b;bad[i]^=0xff;auto prior=c;auto err=decodeChorus(bad.data(),bad.size(),c);if(err!=Error::none)CHECK(c==prior);else CHECK(classicchorus::valid(c));}
     std::uint32_t seed=0xfeedabcd;for(int trial=0;trial<20000;++trial){Bytes random(std::size_t(trial%256));for(auto& x:random){seed=1664525u*seed+1013904223u;x=std::uint8_t(seed>>24);}auto prior=c;if(decodeChorus(random.data(),random.size(),c)!=Error::none)CHECK(c==prior);}
-    std::puts("FST envelopes, range validation, malformed/duplicate rejection and fuzz passed");
+    // Generate the observed FL 26.1.6 metadata shape without distributing original FST files.
+    CHECK(flfactory::chorusDefault==classicchorus::defaults);
+    CHECK(flfactory::flangusDefault==rawsettings::defaults);
+    CHECK(classicchorus::valid(flfactory::chorusLowEnhance));
+    for(int index:{16,17,18}){
+        Bytes metadata;event(metadata,199,Bytes{'2','6','.','1','.','6','.','5','6','3','9',0});
+        event(metadata,159,{7,22,0,0});event(metadata,169,{15,0,0,0});event(metadata,28,{1});
+        metadata.insert(metadata.end(),{172,1,1,0});
+        event(metadata,192,Bytes{'F',0,'L',0,0,0});
+        event(metadata,37,{1});
+        if(index==18) {
+            CHECK(rawsettings::encode(flfactory::flangusDefault,fr));
+            plugin(metadata,"Fruity Flangus",Bytes(fr.begin(),fr.end()));
+            b=envelope(metadata);
+            CHECK(decodeFlangus(b.data(),b.size(),f)==Error::none&&f==flfactory::flangusDefault);
+            CHECK(decodeChorus(b.data(),b.size(),c)==Error::missing);
+        } else {
+            const auto& state=index==16?flfactory::chorusDefault:flfactory::chorusLowEnhance;
+            CHECK(classicchorus::encode(state,cr));plugin(metadata,"Fruity Chorus",Bytes(cr.begin(),cr.end()));
+            b=envelope(metadata);
+            CHECK(decodeChorus(b.data(),b.size(),c)==Error::none&&c==state);
+            CHECK(decodeFlangus(b.data(),b.size(),f)==Error::missing);
+        }
+        for(std::size_t n=0;n<b.size();++n){
+            const auto before=c;const auto beforeF=f;
+            CHECK(decodeChorus(b.data(),n,c)!=Error::none&&c==before);
+            CHECK(decodeFlangus(b.data(),n,f)!=Error::none&&f==beforeF);
+        }
+    }
+    std::puts("FST envelopes, FL 26.1.6 factory states, malformed/duplicate rejection and fuzz passed");
 }
