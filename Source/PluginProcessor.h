@@ -1,9 +1,15 @@
 #pragma once
 #include <JuceHeader.h>
 #include "FlangDSP.h"
+#include "NativeClassicChorusPath.h"
+#if defined(SKELLFLANG_RAW_ENGINE)
+#include "SkellRawFlangusPath.h"
+#endif
 #include <SkellCore/WorldLink.h>
 #include <array>
 #include <atomic>
+#include <map>
+#include <string>
 
 class SkellFlangAudioProcessor final : public juce::AudioProcessor {
 public:
@@ -32,6 +38,15 @@ public:
     void getStateInformation(juce::MemoryBlock&) override;
     void setStateInformation(const void*,int) override;
     void applyFactoryPreset(int);
+    skellflang::classicchorus::State classicChorusSettings() const noexcept;
+    int classicChorusStatus() const noexcept {return classicStatus.load(std::memory_order_acquire);}
+#if defined(SKELLFLANG_RAW_ENGINE)
+    bool rawFlangusRequested() const noexcept;
+    bool rawFlangusExclusive() const noexcept;
+    int rawEngineStatus() const noexcept {return rawStatus.load(std::memory_order_acquire);}
+    void reset() override;
+    skellflang::RawFlangusPath::State rawFlangusSettings() const noexcept;
+#endif
     // New layered mode is additive; these exact parameter IDs are never recycled.
     static constexpr std::array<int,5> layerModes{{0,1,6,4,7}};
     static constexpr std::array<const char*,5> layerParameterIDs{{
@@ -51,9 +66,18 @@ public:
         }
     } meters;
 private:
+    std::map<std::string,const std::atomic<float>*,std::less<>> rawCache;
     float raw(const char*) const noexcept;
     skellflang::Controls settings(int mode) const noexcept;
     skellflang::EngineBank engines;
+    std::array<bool,8> bankWasAudible{};
+    skellflang::NativeClassicChorusPath classicChorus;
+    std::atomic<int> classicStatus{-1};
+#if defined(SKELLFLANG_RAW_ENGINE)
+    skellflang::RawFlangusPath rawFlangus;
+    // -1: not prepared, 0: unsupported/failed, 1: ready.
+    std::atomic<int> rawStatus{-1};
+#endif
     skellflang::PitchTracker pitchTracker;
     skellflang::EqualPowerBlend crossfade;
     std::array<juce::SmoothedValue<float,juce::ValueSmoothingTypes::Linear>,5> layerGains;

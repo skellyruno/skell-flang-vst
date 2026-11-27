@@ -1,4 +1,5 @@
 #include "../Source/PluginProcessor.h"
+#include "../Source/FLFactoryPresets.h"
 #include "../Source/PluginEditor.h"
 #include <JuceHeader.h>
 #include <SkellCore/HeadlessUIRenderer.h>
@@ -7,6 +8,11 @@
 #include <iostream>
 #include <memory>
 #include <stdexcept>
+#include <thread>
+#include <chrono>
+#include <vector>
+#include <atomic>
+#include <algorithm>
 
 namespace {
 void verify(bool ok,const char* message) {
@@ -25,14 +31,21 @@ void click(juce::TextButton* b,const char* error){
     verify(b!=nullptr && bool(b->onClick),error);
     b->onClick();
 }
+void doubleClick(juce::TextButton* b,const char* error){
+    auto* tab=dynamic_cast<FlangEffectTab*>(b);verify(tab!=nullptr,error);
+    tab->invokeGesture(1);tab->invokeGesture(2);
+}
 }
 
 int main(int argc,char** argv){
-    bool full=false;
+    bool full=false,nativeOnly=false,noCapture=false,monitorOnly=false;
     juce::String capturePath="build/ui-smoke";
     for(int i=1;i<argc;++i){
         const juce::String arg(argv[i]);
         if(arg=="--full")full=true;
+        else if(arg=="--native")nativeOnly=true;
+        else if(arg=="--no-capture")noCapture=true;
+        else if(arg=="--monitor")monitorOnly=true;
         else if(arg=="--output" && i+1<argc)capturePath=argv[++i];
         else {std::cerr<<"Unknown Quick4 argument: "<<arg.toStdString()<<"\n";return 2;}
     }
@@ -43,6 +56,103 @@ int main(int argc,char** argv){
         std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
         verify(editor!=nullptr,"Actual editor was not created");
         editor->setVisible(true);
+        if(monitorOnly) {
+            using Clock=std::chrono::steady_clock;
+            auto set=[&](const char* id,float value) {
+                auto* q=processor.parameters.getParameter(id);
+                verify(q!=nullptr,"Missing host stress parameter");
+                q->setValueNotifyingHost(q->convertTo0to1(value));
+            };
+            // Measure actual processor callback wall time, not just isolated
+            // DSP loops. Runner timings are diagnostics, not FL Studio data.
+            for(double sr:{44100.,48000.,96000.,192000.})for(int size:{64,128,512}) {
+                for(int count:{1,4,5}) {
+                    processor.applyFactoryPreset(0);
+                    set("order",8);
+                    for(std::size_t j=0;j<SkellFlangAudioProcessor::layerParameterIDs.size();++j)
+                        set(SkellFlangAudioProcessor::layerParameterIDs[j],int(j)<count?1.f:0.f);
+                    processor.prepareToPlay(sr,size);
+                    juce::AudioBuffer<float> audio(2,size);juce::MidiBuffer midi;
+                    std::vector<double> times;times.reserve(160);
+                    for(int block=0;block<180;++block) {
+                        for(int i=0;i<size;++i){
+                            const auto tick=double(block*size+i);
+                            audio.setSample(0,i,.21f*float(std::sin(tick*.051)));
+                            audio.setSample(1,i,.18f*float(std::sin(tick*.079)));
+                        }
+                        auto begin=Clock::now();processor.processBlock(audio,midi);
+                        const double budget=100.*std::chrono::duration<double>(Clock::now()-begin).count()*sr/size;
+                        if(block>=20)times.push_back(budget);
+                        for(int ch=0;ch<2;++ch)for(int i=0;i<size;++i)
+                            verify(std::isfinite(audio.getSample(ch,i)),"Nonfinite monitoring output");
+                    }
+                    std::sort(times.begin(),times.end());
+                    double mean=0.;for(double t:times)mean+=t/double(times.size());
+                    std::cout<<"Host CPU "<<sr<<" Hz / "<<size<<" samples / "<<count<<" layers: mean "<<mean
+                        <<"% p95 "<<times[(times.size()*95)/100]<<"% peak "<<times.back()<<"%\n";
+                    verify(processor.getLatencySamples()==0,"Monitoring unexpectedly reports PDC");
+                }
+            }
+            for(int preset:{0,4,7,10,13}) {
+                processor.applyFactoryPreset(preset);set("order",8);
+                processor.prepareToPlay(48000.,64);
+                juce::AudioBuffer<float> audio(2,64);juce::MidiBuffer midi;
+                std::vector<double> times;times.reserve(200);
+                for(int block=0;block<220;++block) {
+                    for(int i=0;i<64;++i){
+                        const auto tick=double(block*64+i);
+                        audio.setSample(0,i,.21f*float(std::sin(tick*.051)));
+                        audio.setSample(1,i,.18f*float(std::sin(tick*.079)));
+                    }
+                    const auto begin=Clock::now();processor.processBlock(audio,midi);
+                    if(block>=20)times.push_back(100.*std::chrono::duration<double>(Clock::now()-begin).count()*48000./64);
+                }
+                std::sort(times.begin(),times.end());
+                double mean=0.;for(double t:times)mean+=t/double(times.size());
+                std::cout<<"Solo CPU preset "<<preset<<" at 48k/64: mean "<<mean<<"% p95 "<<times[190]<<"% peak "<<times.back()<<"%\n";
+            }
+            processor.applyFactoryPreset(0);processor.prepareToPlay(48000.,64);
+            std::atomic<bool> quit{false},bad{false};
+            std::atomic<unsigned> blocks{0};
+            std::thread audioThread([&]{
+                juce::AudioBuffer<float> audio(2,64);juce::MidiBuffer midi;
+                while(!quit.load(std::memory_order_acquire)) {
+                    for(int i=0;i<64;++i){audio.setSample(0,i,.2f);audio.setSample(1,i,-.13f);}
+                    processor.processBlock(audio,midi);
+                    for(int i=0;i<64;++i)if(!std::isfinite(audio.getSample(0,i))||!std::isfinite(audio.getSample(1,i)))bad.store(true);
+                    blocks.fetch_add(1,std::memory_order_relaxed);
+                    std::this_thread::sleep_for(std::chrono::microseconds(500));
+                }
+            });
+            struct StopAudio {
+                std::atomic<bool>& stop;std::thread& thread;
+                ~StopAudio(){stop.store(true,std::memory_order_release);if(thread.joinable())thread.join();}
+            } stopAudio{quit,audioThread};
+            const auto audioAdvance=[&]{
+                const auto start=blocks.load(std::memory_order_acquire);
+                const auto deadline=Clock::now()+std::chrono::seconds(2);
+                while(blocks.load(std::memory_order_acquire)<start+4 && Clock::now()<deadline)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                verify(blocks.load(std::memory_order_acquire)>=start+4,"Audio stalled during editor operation");
+            };
+            for(int round=0;round<16;++round){
+                for(const auto* name:{"CHORUS","FLANGER","FLANGUS","ORBIT","DIMENSION"}){
+                    click(findButton(*editor,name),"Effect switch failed during concurrent audio");audioAdvance();
+                }
+                for(const auto* name:{"CHORUS","FLANGER","FLANGUS","ORBIT"}){
+                    doubleClick(findButton(*editor,name),"Layer toggle failed during concurrent audio");audioAdvance();
+                }
+                editor.reset();audioAdvance();
+                editor.reset(processor.createEditor());
+                verify(editor!=nullptr,"Editor reopening failed");
+                editor->setVisible(true);
+            }
+            editor.reset();
+            quit.store(true,std::memory_order_release);audioThread.join();
+            verify(blocks.load()>0&&!bad.load(),"Audio/editor concurrent stress failed");
+            std::cout<<"16 editor teardown/reopen cycles, "<<blocks.load()<<" audio blocks; monitoring stress passed\n";
+            return 0;
+        }
         // Quick4 captures the *actual* JUCE component tree offscreen, like
         // Mini/Master: no X11 desktop peer (some Linux/Xvfb stacks reject the
         // X_ChangeProperty atom). The full legacy host test still uses a peer.
@@ -50,6 +160,122 @@ int main(int argc,char** argv){
             editor->addToDesktop(0);
             verify(editor->isShowing(),"Editor needs a native peer for real screenshots");
         }
+        if(nativeOnly) {
+#if defined(SKELLFLANG_RAW_ENGINE)
+            using P=skellflang::RawFlangusPath;
+            auto set=[&](const char* id,float value){
+                auto* p=processor.parameters.getParameter(id);
+                verify(p!=nullptr,"Missing native host parameter");
+                p->setValueNotifyingHost(p->convertTo0to1(value));
+            };
+            processor.applyFactoryPreset(7);
+            verify(processor.rawFlangusRequested(),"Factory Flangus must select the native engine by default");
+            set("mode",6);set(P::enabledId,0);
+            verify(processor.rawFlangusRequested(),"Retired ID must not disable native Flangus");
+            const std::array<const char*,8> controls{{"fader-order","fader-depth","fader-speed","fader-delay","fader-spread","fader-cross","fader-dry","fader-wet"}};
+            const P::State signedState{{9,1024,768,8,128,-128,-96,96}};
+            for(std::size_t k=0;k<8;++k)set(P::ids[k],float(signedState[k]));
+            processor.prepareToPlay(48000.,4096);
+            auto refresh=[&]{click(byID(*editor,"skull"),"Native refresh failed");};
+            refresh();
+            for(std::size_t k=0;k<8;++k){
+                auto* slider=dynamic_cast<juce::Slider*>(editor->findChildWithID(controls[k]));
+                verify(slider!=nullptr&&slider->isVisible(),"Native control missing");
+                verify(slider->getMinimum()==skellflang::rawsettings::minimum[k]&&slider->getMaximum()==skellflang::rawsettings::maximum[k],"Native integer range wrong");
+                verify(slider->getValue()==signedState[k],"Native fader not bound to raw state");
+            }
+            auto* cross=dynamic_cast<juce::Slider*>(editor->findChildWithID("fader-cross"));
+            cross->setValue(-17,juce::sendNotificationSync);
+            verify(processor.rawFlangusSettings()[5]==-17,"Native fader did not automate raw ID");
+            set(P::ids[5],-128);
+            click(findButton(*editor,"FLANGUS"),"Native Flangus tab missing");
+            verify(processor.rawFlangusRequested(),"Selected native tab disabled native mode");
+            verify(!editor->findChildWithID("lfo-wave")->isVisible()&&!editor->findChildWithID("tone-0")->isVisible(),"Ignored control visible in native mode");
+            set(P::enabledId,1);
+            juce::MemoryBlock saved;
+            processor.getStateInformation(saved);
+            processor.applyFactoryPreset(0);
+            verify(!processor.rawFlangusRequested(),"Legacy factory unexpectedly selected native");
+            processor.setStateInformation(saved.getData(),int(saved.getSize()));
+            verify(processor.rawFlangusRequested()&&processor.rawFlangusSettings()==signedState,"Native state roundtrip failed");
+            auto preNative=processor.parameters.copyState();
+            preNative.removeProperty("rawRoutingVersion",nullptr);
+            for(int i=preNative.getNumChildren()-1;i>=0;--i) {
+                const auto child=preNative.getChild(i);
+                const auto id=child.getProperty("id").toString();
+                if(id.startsWith("skellyRaw"))preNative.removeChild(i,nullptr);
+            }
+            preNative.getChildWithProperty("id","depth").setProperty("value",.5f,nullptr);
+            preNative.getChildWithProperty("id","order").setProperty("value",5.f,nullptr);
+            juce::MemoryBlock migrated;
+            if(auto xml=preNative.createXml())juce::AudioProcessor::copyXmlToBinary(*xml,migrated);
+            processor.setStateInformation(migrated.getData(),int(migrated.getSize()));
+            verify(processor.rawFlangusRequested()&&processor.rawFlangusSettings()[0]==5&&processor.rawFlangusSettings()[1]==512,"Old normalized Flangus state did not migrate to native");
+            processor.setStateInformation(saved.getData(),int(saved.getSize()));
+            // Check the real processor against signed dry-only source, without legacy dry/wet.
+            set(P::ids[6],-128);set(P::ids[7],0);set("output",0);set("power",1);
+            processor.prepareToPlay(48000.,4096);
+            juce::AudioBuffer<float> nativeAudio(2,4096);
+            juce::MidiBuffer noMidi;
+            for(int i=0;i<4096;++i){nativeAudio.setSample(0,i,.25f);nativeAudio.setSample(1,i,-.5f);}
+            processor.processBlock(nativeAudio,noMidi);
+            for(int i=0;i<4096;++i)verify(nativeAudio.getSample(0,i)==-.25f&&nativeAudio.getSample(1,i)==.5f,"Native signed dry or exclusive routing failed");
+            // With two dry-only layers, the full rack is the weighted average
+            // of native inverted dry and the other layer's positive dry.
+            set("layerFlanger",1);set("dry",1);set("wet",0);
+            processor.prepareToPlay(48000.,4096);
+            for(int i=0;i<4096;++i){nativeAudio.setSample(0,i,.25f);nativeAudio.setSample(1,i,-.5f);}
+            processor.processBlock(nativeAudio,noMidi);
+            for(int i=0;i<4096;++i)verify(std::abs(nativeAudio.getSample(0,i))<1.e-6f&&std::abs(nativeAudio.getSample(1,i))<1.e-6f,"Native stack doubled or failed to replace dry signal");
+            set("layerFlanger",0);
+            processor.reset();
+            processor.prepareToPlay(22050.,32);
+            refresh();
+            verify(processor.rawEngineStatus()==0&&!editor->findChildWithID("lfo-wave")->isVisible(),"Unsupported rate retains native controls with bypass warning");
+            for(int i=0;i<4096;++i){nativeAudio.setSample(0,i,.25f);nativeAudio.setSample(1,i,-.5f);}
+            processor.processBlock(nativeAudio,noMidi);
+            for(int i=0;i<4096;++i)verify(nativeAudio.getSample(0,i)==.25f&&nativeAudio.getSample(1,i)==-.5f,"Unsupported-rate native bypass altered input");
+            processor.setStateInformation(saved.getData(),int(saved.getSize()));
+            processor.prepareToPlay(48000.,4096);
+            refresh();
+            verify(processor.rawEngineStatus()==1&&!editor->findChildWithID("lfo-wave")->isVisible(),"Native recovery after unsupported rate failed");
+            if(!noCapture) {
+            skellcore::ui::headless::Options nativeOptions;
+            nativeOptions.project="Skell-Flang native controls";nativeOptions.minimumColours=12;
+            for(int width:{540,720,900,1080})for(int skin=0;skin<(full?3:1);++skin) {
+                const int themeIndex=full?skin:(width==900?1:width==1080?2:0);
+                nativeOptions.scenes.push_back({"native-"+juce::String(width)+"-theme-"+juce::String(themeIndex),width,juce::roundToInt(width*500./720.),themeIndex,6,false});
+            }
+            nativeOptions.configure=[&](const auto& scene){
+                // Theme is persisted by the existing skull control.
+                const int target=scene.id.fromLastOccurrenceOf("-theme-",false,false).getIntValue();
+                for(int i=0;i<3&&int(processor.parameters.state.getProperty("uiTheme",0))!=target;++i)refresh();
+                verify(int(processor.parameters.state.getProperty("uiTheme",0))==target,"Native theme selection failed");
+            };
+            nativeOptions.inspect=[&]{
+                juce::StringArray errors;
+                for(const auto* id:controls){
+                    auto* c=editor->findChildWithID(id);
+                    if(!c||!c->isVisible()||!editor->getLocalBounds().contains(c->getBounds()))errors.add("Native control outside bounds: "+juce::String(id));
+                }
+                return errors;
+            };
+            const auto out=juce::File::isAbsolutePath(capturePath)?juce::File(capturePath):juce::File::getCurrentWorkingDirectory().getChildFile(capturePath);
+            const auto report=skellcore::ui::headless::render(*editor,out,nativeOptions);
+            for(const auto& error:report.errors)std::cerr<<error.toStdString()<<"\n";
+            verify(report.passed()&&report.captured==(full?12:4),"Native Quick4 capture failed");
+            }
+            click(findButton(*editor,"ORBIT"),"Cannot exit native mode to Orbit");
+            verify(!processor.rawFlangusRequested()&&int(processor.parameters.getRawParameterValue("mode")->load())==4,"Orbit selection did not exit native");
+            verify(editor->findChildWithID("lfo-wave")->isVisible(),"Legacy controls not restored");
+            std::cout<<"Native host smoke passed"<<(noCapture?" (no capture)":" with real editor captures")<<"\n";
+            return 0;
+#else
+            std::cerr<<"--native requires the native-engine source\n";return 2;
+#endif
+        }
+        const auto legacyPreset=[&](int n){processor.applyFactoryPreset(n);};
+        legacyPreset(0);
         verify(editor->getWidth()==540 && editor->getHeight()==375,
                "Compact 540 x 375 editor proportions are incorrect");
         verify(processor.getProgramName(0).isNotEmpty(),"Missing host program name");
@@ -61,6 +287,8 @@ int main(int argc,char** argv){
             click(tab,"Missing effect tab or callback");
             verify(int(processor.parameters.getRawParameterValue("mode")->load())==choices[i],
                    "Displayed mode ID does not match the host parameter choice");
+            for(std::size_t j=0;j<choices.size();++j)
+                verify((processor.parameters.getRawParameterValue(SkellFlangAudioProcessor::layerParameterIDs[j])->load()>.5f)==(i==j),"Single click left an unintended effect active");
         }
         for(const char* old:{"VOWEL","REVERSE","TUNED"})
             verify(findButton(*editor,old)==nullptr,"Removed mode visible in selector");
@@ -88,6 +316,8 @@ int main(int argc,char** argv){
         auto* wave=dynamic_cast<juce::ComboBox*>(editor->findChildWithID("lfo-wave"));
         auto* sync=byID(*editor,"lfo-sync");
         verify(wave&&sync,"Missing WAVE or SYNC");
+        verify(editor->findChildWithID("tone-2")==nullptr,"Output knob must not be displayed");
+        verify(processor.parameters.getParameter("output")!=nullptr,"Legacy output automation ID removed");
         verify(editor->findChildWithID("morph")==nullptr &&
                editor->findChildWithID("morph-target")==nullptr,
                "Retired TO/MORPH controls are still visible");
@@ -96,12 +326,12 @@ int main(int argc,char** argv){
         verify(sync->getY()<65&&sync->getRight()<cog->getX()&&
                sync->getButtonText().isEmpty(),
                "SYNC symbol must be before settings");
-        processor.applyFactoryPreset(0);
+        legacyPreset(0);
         auto* chorus=findButton(*editor,"CHORUS");
         auto* flanger=findButton(*editor,"FLANGER");
         auto* orbit=findButton(*editor,"ORBIT");
         auto* dimension=findButton(*editor,"DIMENSION");
-        click(flanger,"Could not enable a second layer");
+        doubleClick(flanger,"Could not enable a second layer");
         auto* editNext=byID(*editor,"edit-next");
         verify(editNext && editNext->isVisible() &&
                editNext->getTooltip().containsIgnoreCase("next enabled effect"),
@@ -140,22 +370,22 @@ int main(int argc,char** argv){
         verify(processor.parameters.getRawParameterValue("layerFlanger")->load()>.5f &&
                processor.parameters.getRawParameterValue("layerChorus")->load()>.5f,
                "Enabling Flanger must not remove Chorus");
-        click(orbit,"Cannot add Orbit layer");
-        click(dimension,"Cannot add Dimension layer");
+        doubleClick(orbit,"Cannot add Orbit layer");
+        doubleClick(dimension,"Cannot add Dimension layer");
         verify(processor.parameters.getRawParameterValue("layerOrbit")->load()>.5f &&
                processor.parameters.getRawParameterValue("layerDimension")->load()>.5f,
                "Multiple simultaneous layers not active");
-        click(orbit,"Cannot disable Orbit");
+        doubleClick(orbit,"Cannot disable Orbit");
         verify(processor.parameters.getRawParameterValue("layerOrbit")->load()<.5f,
                "Clicking Orbit again must disable it");
-        click(dimension,"Cannot disable Dimension");
-        click(flanger,"Cannot disable Flanger");
-        click(chorus,"Last active layer must be protected");
+        doubleClick(dimension,"Cannot disable Dimension");
+        doubleClick(flanger,"Cannot disable Flanger");
+        doubleClick(chorus,"Last active layer must be protected");
         verify(!editNext->isVisible(),
                "Edit-next switcher must hide when only one layer is active");
         verify(processor.parameters.getRawParameterValue("layerChorus")->load()>.5f,
                "All-off click is not guarded");
-        processor.applyFactoryPreset(0);
+        legacyPreset(0);
         // The host-only fixture applies a preset without running a GUI event
         // loop. Trigger the same refresh normally delivered by timerCallback.
         click(skull,"Could not refresh the factory preset display");
@@ -168,14 +398,16 @@ int main(int argc,char** argv){
         verify(depth && bool(depth->onDragStart) && bool(depth->onDragEnd),
                "Depth fader is missing its user-edit callbacks");
         depth->onDragStart();
-        depth->setValue(depth->getValue()+.09,juce::sendNotificationSync);
+        depth->setValue(depth->getValue()+100.,juce::sendNotificationSync);
         depth->onDragEnd();
         verify(preset->getButtonText()=="CUSTOM" &&
                processor.parameters.state.getProperty("presetName")=="CUSTOM",
                "Dragging a fader failed to identify a modified factory preset");
-        processor.applyFactoryPreset(0);
+        legacyPreset(0);
         verify(processor.parameters.state.getProperty("presetName")=="INIT",
                "Reloading factory preset did not restore its name");
+        legacyPreset(4);
+        click(skull,"Refresh Flanger tone controls");
         auto* tone=dynamic_cast<juce::Slider*>(
             editor->findChildWithID("tone-1"));
         verify(tone && bool(tone->onDragStart)&&bool(tone->onDragEnd),
@@ -186,7 +418,7 @@ int main(int argc,char** argv){
         tone->onDragEnd();
         verify(processor.parameters.state.getProperty("presetName")=="CUSTOM",
                "Dragging a knob failed to update preset status");
-        processor.applyFactoryPreset(0);
+        legacyPreset(0);
         auto* look=dynamic_cast<FlangLookAndFeel*>(&editor->getLookAndFeel());
         verify(look!=nullptr,"Skell-Flang is not using the custom look-and-feel");
         // Factory presets are host-driven; refresh presentation before
@@ -199,7 +431,7 @@ int main(int argc,char** argv){
                "Skull click did not actually change the interface background");
         verify(look->accent==initialAccent,
                "Skull theme click incorrectly changed the effect identity accent");
-        verify(wave->isVisible(),"Skull theme changed WAVE visibility");
+        verify(!wave->isVisible()&&!sync->isVisible(),"Classic Chorus must hide unsupported Wave/Sync controls");
         // The four advanced character parameters must be selectable without
         // drawing seven simultaneous rotary knobs. Every original APVTS dial
         // remains instantiated and available to the DAW automation system.
@@ -230,12 +462,37 @@ int main(int argc,char** argv){
                "Theme switching changed the selected macro");
         click(macroSelectors[0],"Cannot restore default macro selector");
 
+        // Native Chorus attachments and solo host-vs-engine parity.
+        const std::array<const char*,8> classicFaders{{"fader-order","fader-depth","fader-speed","fader-delay","fader-spread","fader-cross","fader-dry","fader-wet"}};
+        for(std::size_t k=0;k<classicFaders.size();++k) {
+            auto* slider=dynamic_cast<juce::Slider*>(editor->findChildWithID(classicFaders[k]));
+            verify(slider&&slider->isVisible()&&slider->getMaximum()==skellflang::classicchorus::maximum[k],"Wrong native Chorus fader binding");
+            verify(slider->getValue()==processor.classicChorusSettings()[k],"Wrong native Chorus raw value");
+        }
+        for(std::size_t k=0;k<4;++k) {
+            click(macroSelectors[k],"Cannot select Chorus contextual parameter");
+            verify(macroDials[k]->isVisible()&&macroDials[k]->getMaximum()==skellflang::classicchorus::maximum[k+8],"Wrong native Chorus macro binding");
+        }
+        processor.applyFactoryPreset(0);processor.prepareToPlay(48000.,512);
+        skelly::fruitychorusfx::Engine direct;direct.setRate(48000);direct.load(processor.classicChorusSettings());direct.reset();
+        juce::AudioBuffer<float> chorusAudio(2,512);juce::MidiBuffer chorusMidi;
+        std::array<float,1024> directIn{},directOut{};
+        for(int block=0;block<32;++block) {
+            for(int i=0;i<512;++i)for(int ch=0;ch<2;++ch){
+                const float x=.2f*float(std::sin((block*512+i)*(ch?.071:.051)));
+                directIn[2*i+ch]=x;chorusAudio.setSample(ch,i,x);
+            }
+            direct.render(directIn.data(),directOut.data(),512);
+            processor.processBlock(chorusAudio,chorusMidi);
+            for(int i=0;i<512;++i)for(int ch=0;ch<2;++ch)
+                verify(std::abs(chorusAudio.getSample(ch,i)-directOut[2*i+ch])<1.e-6f,"Host Classic Chorus did not match native reference");
+        }
         // A factory preset must update the engine AND the character controls.
-        processor.applyFactoryPreset(7);
+        legacyPreset(7);
         verify(int(processor.parameters.getRawParameterValue("mode")->load())==6,
                "Flangus preset did not select Flangus");
-        verify(processor.parameters.getRawParameterValue("extra0")->load()>.6f,
-               "Flangus preset did not load its own sound macros");
+        verify(processor.rawFlangusSettings()==skellflang::rawsettings::defaults,
+               "Flangus factory did not load native defaults");
         verify(processor.parameters.state.getProperty("presetName").toString()=="Flangus Glow",
                "Preset title was not saved");
         verify(processor.getLatencySamples()==0,"Unexpected host delay compensation");
@@ -289,7 +546,7 @@ int main(int argc,char** argv){
         options.scenes.push_back(
             {"Skell-Flang-540-chorus-all-five",540,375,0,0,true});
         options.scenes.push_back(
-            {"Skell-Flang-720-chorus-sync",720,500,0,0,false});
+            {"Skell-Flang-720-chorus-wet-only",720,500,0,0,false});
         // Compare the next-edit switcher and the shortcut focus on the same
         // two enabled engines. Actual JUCE renders must show distinct focus.
         options.scenes.push_back(
@@ -327,14 +584,14 @@ int main(int argc,char** argv){
             currentScene=scene.id;
             const int desired=scene.mode;
             const int bank=desired==0?0:desired==1?4:desired==6?7:desired==4?10:13;
-            processor.applyFactoryPreset(bank);
+            legacyPreset(bank);
             if(scene.browser) {
                 const int extra=desired==0?1:0;
-                click(findButton(*editor,extra==0?"CHORUS":"FLANGER"),
+                doubleClick(findButton(*editor,extra==0?"CHORUS":"FLANGER"),
                       "Second layer could not be enabled in renderer");
                 if(scene.id.contains("-all-five")) {
                     for(const auto* name:{"FLANGUS","ORBIT","DIMENSION"})
-                        click(findButton(*editor,name),
+                        doubleClick(findButton(*editor,name),
                               "Cannot build all-five-effect UI test");
                     for(const auto* id:SkellFlangAudioProcessor::layerParameterIDs) {
                         const auto* value=processor.parameters.getRawParameterValue(id);
@@ -366,9 +623,9 @@ int main(int argc,char** argv){
                        processor.parameters.getRawParameterValue("layerFlanger")->load()>.5f,
                        "Edit focus muted the layered audio during screenshot");
             }
-            if(scene.id.endsWith("-sync"))
-                if(auto* p=processor.parameters.getParameter("lfoSync"))
-                    p->setValueNotifyingHost(p->convertTo0to1(1.f));
+            if(scene.id.endsWith("-wet-only"))
+                if(auto* p=processor.parameters.getParameter("nativeChorusWetOnly"))
+                    p->setValueNotifyingHost(p->convertTo0to1(1024.f));
             // Three skull clicks force a refresh even when target theme is
             // already correct (the preset is applied by the host).
             for(int i=0;i<3;++i)
@@ -399,11 +656,22 @@ int main(int argc,char** argv){
             if(scene.id.contains("-macro"))
                 selectedMacro=juce::jlimit(0,3,scene.id.fromLastOccurrenceOf(
                     "-macro",false,false).getIntValue());
-            click(macroSelectors[size_t(selectedMacro)],"Cannot select macro");
-            verify(macroDials[size_t(selectedMacro)]->isVisible(),
-                   "Wrong macro dial visibility");
-            verify(wave->isVisible()&&sync->isVisible(),
-                   "Signal wave or header sync control hidden");
+            if(scene.id.endsWith("-wet-only"))selectedMacro=3;
+            if(expectedMode==6) {
+                verify(!wave->isVisible()&&!sync->isVisible(),"Native irrelevant controls visible");
+                // Keep the four existing diagnostic scene IDs but vary native
+                // Depth instead of the removed hybrid character macros.
+                if(scene.id.contains("-macro")) {
+                    auto* depthParam=processor.parameters.getParameter("skellyRawDepth");
+                    verify(depthParam!=nullptr,"Native depth missing");
+                    depthParam->setValueNotifyingHost(depthParam->convertTo0to1(float(128+selectedMacro*256)));
+                    click(skull,"Refresh native depth scene");click(skull,"Refresh native depth scene");click(skull,"Refresh native depth scene");
+                }
+            } else {
+                click(macroSelectors[size_t(selectedMacro)],"Cannot select macro");
+                verify(macroDials[size_t(selectedMacro)]->isVisible(),"Wrong macro dial visibility");
+                verify(wave->isVisible()==(expectedMode!=0)&&sync->isVisible()==(expectedMode!=0),"Wrong waveform/sync visibility");
+            }
         };
         options.inspect=[&]{
             juce::StringArray errors;
@@ -418,7 +686,9 @@ int main(int argc,char** argv){
                     errors.add("Control too small: "+c->getComponentID());
                 ++count;
             }
-            if(count<23)errors.add("Too few visible controls");
+            const bool native=processor.rawFlangusRequested();
+            const bool classic=int(processor.parameters.getRawParameterValue("mode")->load())==0;
+            if(count<(native?13:classic?17:21))errors.add("Too few visible controls");
             if(editNext->isVisible()) {
                 const float scale=editor->getWidth()/720.f;
                 const int focused=int(processor.parameters
@@ -486,10 +756,10 @@ int main(int argc,char** argv){
             }
             int shownDials=0;
             for(auto* dial:macroDials)if(dial->isVisible())++shownDials;
-            if(shownDials!=1)errors.add("Character dial count must equal one");
+            if(shownDials!=(native?0:1))errors.add("Wrong character dial count");
             for(auto* btn:macroSelectors)
-                if(!btn->isVisible())errors.add("Character selector hidden");
-            if(wave->getSelectedId()==0)
+                if(btn->isVisible()==native)errors.add("Wrong character selector visibility");
+            if(!native&&!classic&&wave->getSelectedId()==0)
                 errors.add("Waveform selection is blank");
             // All interactive controls must have independent, non-overlapping
             // mouse hit areas, even at the compact 540 px editor width.
@@ -518,7 +788,7 @@ int main(int argc,char** argv){
             {"Skell-Flang-720-chorus-stacked","Skell-Flang-720-chorus-edit-flanger"},
             {"Skell-Flang-720-chorus-stacked","Skell-Flang-720-chorus-edit-next"},
             {"Skell-Flang-720-dimension-solo","Skell-Flang-720-dimension-focus"},
-            {"Skell-Flang-720-chorus-solo","Skell-Flang-720-chorus-sync"},
+            {"Skell-Flang-720-chorus-solo","Skell-Flang-720-chorus-wet-only"},
             {"Skell-Flang-540-flanger-solo","Skell-Flang-540-flangus-solo"},
             {"Skell-Flang-540-orbit-solo","Skell-Flang-540-dimension-solo"},
             {"Skell-Flang-720-chorus-solo","Skell-Flang-720-chorus-graphite"},
@@ -590,11 +860,11 @@ int main(int argc,char** argv){
                "Legacy tuned tracker lost anti-phase stereo note");
         // Host-level regression: restore complete VST3 state and confirm
         // factory mode, preset name and master controls survive save/reload.
-        processor.applyFactoryPreset(9);
+        legacyPreset(9);
         juce::MemoryBlock session;
         processor.getStateInformation(session);
         verify(session.getSize()>100,"VST3 session state was not serialized");
-        processor.applyFactoryPreset(0);
+        legacyPreset(0);
         verify(int(processor.parameters.getRawParameterValue("mode")->load())==0,
                "State fixture did not reset to Chorus");
         processor.setStateInformation(session.getData(),int(session.getSize()));
@@ -603,23 +873,67 @@ int main(int argc,char** argv){
         verify(processor.parameters.state.getProperty("presetName").toString()=="Flangus Jet",
                "Restored session lost preset identity");
 
+        // Verify new factory choices and complete state recall.
+        for(int index:{16,17,18}) {
+            processor.applyFactoryPreset(index);
+            const bool isFlangus=index==18;
+            const auto* name=index==16?skellflang::flfactory::chorusDefaultName:
+                index==17?skellflang::flfactory::chorusLowEnhanceName:skellflang::flfactory::flangusDefaultName;
+            const auto expectedChorus=index==17?skellflang::flfactory::chorusLowEnhance:skellflang::flfactory::chorusDefault;
+            const auto check=[&] {
+                verify(processor.parameters.state.getProperty("presetName").toString()==name,"FL factory name lost");
+                verify(int(processor.parameters.getRawParameterValue("mode")->load())==(isFlangus?6:0),"FL factory wrong engine");
+                for(std::size_t k=0;k<SkellFlangAudioProcessor::layerModes.size();++k)
+                    verify((processor.parameters.getRawParameterValue(SkellFlangAudioProcessor::layerParameterIDs[k])->load()>.5f)==(SkellFlangAudioProcessor::layerModes[k]==(isFlangus?6:0)),"FL factory not solo");
+#if defined(SKELLFLANG_RAW_ENGINE)
+                if(isFlangus)verify(processor.rawFlangusSettings()==skellflang::flfactory::flangusDefault,"FL Flangus raw settings mismatch");
+#endif
+                if(!isFlangus)verify(processor.classicChorusSettings()==expectedChorus,"FL Chorus raw settings mismatch");
+                verify(processor.parameters.getRawParameterValue("output")->load()==0.f,"FL factory unexpected output gain");
+            };
+            check();juce::MemoryBlock saved;processor.getStateInformation(saved);
+            processor.applyFactoryPreset(5);
+            processor.setStateInformation(saved.getData(),int(saved.getSize()));check();
+        }
+        processor.applyFactoryPreset(0);
+        verify(processor.classicChorusSettings()==skellflang::classicchorus::defaults&&processor.parameters.state.getProperty("presetName").toString()=="INIT","Existing INIT changed");
         // New layer flags must round-trip through a VST3 project state.
-        processor.applyFactoryPreset(7); // Flangus Glow
+        legacyPreset(7); // Flangus Glow
         auto* orbitFlag=processor.parameters.getParameter("layerOrbit");
         orbitFlag->setValueNotifyingHost(orbitFlag->convertTo0to1(1.f));
         juce::MemoryBlock layerSession;
         processor.getStateInformation(layerSession);
-        processor.applyFactoryPreset(0);
+        legacyPreset(0);
         processor.setStateInformation(layerSession.getData(),int(layerSession.getSize()));
         verify(processor.parameters.getRawParameterValue("layerMode")->load()>.5f &&
                processor.parameters.getRawParameterValue("layerFlangus")->load()>.5f &&
                processor.parameters.getRawParameterValue("layerOrbit")->load()>.5f,
                "Layer stack was not restored from saved FL Studio state");
 
+        // The appended trial parameter must recall, and loading a pre-trial
+        // session must not inherit the last loaded enhanced setting.
+        auto* enhanced=processor.parameters.getParameter("enhancedMotion");
+        verify(enhanced!=nullptr,"Missing enhanced motion parameter");
+        enhanced->setValueNotifyingHost(1.f);
+        juce::MemoryBlock trialState;
+        processor.getStateInformation(trialState);
+        legacyPreset(10);
+        verify(enhanced->getValue()==0.f,"Legacy factory selected experimental motion");
+        processor.setStateInformation(trialState.getData(),int(trialState.getSize()));
+        verify(enhanced->getValue()==1.f,"Enhanced motion recall failed");
+        auto oldTree=processor.parameters.copyState();
+        auto trialChild=oldTree.getChildWithProperty("id","enhancedMotion");
+        verify(trialChild.isValid(),"Trial parameter missing in state tree");
+        oldTree.removeChild(trialChild,nullptr);
+        juce::MemoryBlock oldSession;
+        if(auto xml=oldTree.createXml())juce::AudioProcessor::copyXmlToBinary(*xml,oldSession);
+        processor.setStateInformation(oldSession.getData(),int(oldSession.getSize()));
+        verify(enhanced->getValue()==0.f,"Pre-trial state inherited enhanced motion");
+
         // Audio must actually differ with two independent engines, without
         // duplicated dry gain or nonfinite output. Compare identical inputs.
         const auto measure=[&](bool layeredFlanger) {
-            processor.applyFactoryPreset(0);
+            legacyPreset(0);
             auto* flangerFlag=processor.parameters.getParameter("layerFlanger");
             flangerFlag->setValueNotifyingHost(
                 flangerFlag->convertTo0to1(layeredFlanger?1.f:0.f));

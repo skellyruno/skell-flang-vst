@@ -35,7 +35,8 @@ public:
     void leave() {
         requested_.store(false, std::memory_order_release);
         signalThreadShouldExit();
-        stopThread(3000); // 200ms read poll + bounded reconnect sleep
+        notify();
+        if(isThreadRunning())stopThread(3000); // 200ms read poll + bounded reconnect sleep
         online_.store(false, std::memory_order_release);
         peers_.store(0, std::memory_order_release);
     }
@@ -125,7 +126,7 @@ private:
             // Do not replay stale theme/preset suggestions after reconnect.
             Frame obsolete;
             while (pending_.pop(obsolete)) {}
-            if (!threadShouldExit()) juce::Thread::sleep(1200);
+            if (!threadShouldExit()) wait(1200);
         }
     }
     Mailbox<32> pending_; // one UI producer, one worker consumer

@@ -1,4 +1,7 @@
 #include "PluginEditor.h"
+#include "FLPresetImport.h"
+#include "FLFactoryPresets.h"
+#include <charconv>
 #include <algorithm>
 #include <cmath>
 
@@ -48,12 +51,13 @@ const juce::Colour tints[]{
     juce::Colour::fromRGB(154,244,77),  // flangus / skell neon lime
     juce::Colour::fromRGB(246,202,131)  // dimension / warm ivory-gold
 };
-constexpr std::array<const char*,16> presets{
+constexpr std::array<const char*,19> presets{
     "INIT","Velvet Chorus","Wide Vocal Double","Neon Ensemble",
     "Satin Flanger","Jet Sweep","Polarity Comb",
     "Flangus Glow","Flangus Motion","Flangus Jet",
     "Orbit Halo","Orbit Carousel","Orbit Pulse",
-    "Dimension Air","Dimension Doubler","Dimension Width"
+    "Dimension Air","Dimension Doubler","Dimension Width",
+    skellflang::flfactory::chorusDefaultName,skellflang::flfactory::chorusLowEnhanceName,skellflang::flfactory::flangusDefaultName
 };
 void styleSlider(juce::Slider& slider,bool vertical){
     slider.setSliderStyle(vertical?juce::Slider::LinearVertical:
@@ -192,8 +196,10 @@ void FlangLookAndFeel::drawLinearSlider(juce::Graphics& g,int x,int y,int w,int 
 
     const float capWidth=juce::jlimit(20.f,43.f,float(w)*.64f);
     const float capHeight=juce::jlimit(23.f,43.f,capWidth*1.18f);
-    const float thumbY=std::clamp(pos,railTop+capHeight*.5f,
-                                      railBottom-capHeight*.5f);
+    // The thumb uses the full calibrated travel, without clipping at either
+    // end. JUCE supplies the actual skewed slider proportion.
+    const float unit=float(std::clamp(control.valueToProportionOfLength(control.getValue()),0.0,1.0));
+    const float thumbY=juce::jmap(1.f-unit,railTop+capHeight*.5f,railBottom-capHeight*.5f);
     // The position cue runs beneath the shuttle, just like the reference.
     g.setColour(railAccent.withAlpha(daylight?.94f:.96f));
     g.drawLine(cx,thumbY+capHeight*.48f,cx,railBottom,1.55f);
@@ -253,14 +259,15 @@ void FlangLookAndFeel::drawLinearSlider(juce::Graphics& g,int x,int y,int w,int 
     // Keep the host parameter's numeric feedback, tucked into the channel
     // header without changing the reference's silhouette.
     const bool orderFader=control.getComponentID()=="fader-order";
-    const auto readout=orderFader
+    const auto rawReadout=(orderFader||bool(control.getProperties().getWithDefault("rawFlangus",false)))
         ? juce::String(juce::roundToInt(control.getValue()))
         : juce::String(juce::roundToInt(control.getValue()*100.))+"%";
     g.setColour((daylight?juce::Colour::fromRGB(63,76,75)
                           :juce::Colour::fromRGB(165,187,179)).withAlpha(.82f));
     g.setFont(juce::Font(juce::jlimit(8.f,10.3f,float(w)*.215f),
                          juce::Font::bold));
-    g.drawText(readout,x+1,y+2,w-2,12,juce::Justification::centred);
+    const auto readout=control.getProperties().getWithDefault("displayValue",rawReadout).toString();
+    g.drawFittedText(readout,x+1,y+2,w-2,13,juce::Justification::centred,1,.72f);
 
 }
 
@@ -778,6 +785,7 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         p.parameters,"order",order);
 
     for(int i=0;i<7;++i) {
+        if(i==2)continue; // Output ID remains host-compatible; no visible knob or attachment.
         styleSlider(knobs[i],false);
         knobs[i].setComponentID("tone-"+juce::String(i));
         addAndMakeVisible(knobs[i]);
@@ -834,72 +842,71 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         };
         addAndMakeVisible(button);
     }
-    const char* hints[]{
-        "Multi-voice detuned stereo chorus",
-        "Comb flanger with stereo phase modulation",
-        "Stacked chorus-flanger hybrid",
-        "Rotating stereo field with independent L/R",
-        "Slow stereo doubler and dimensional widening"
-    };
     for(int i=0;i<5;++i) {
         const int mode=visibleModes[size_t(i)];
         auto& button=tabs[size_t(i)];
         button.setButtonText(modes[mode]);
-        button.setTooltip("Click to add/remove. Shift-click an active layer to edit without muting.");
+        button.setTooltip("Click: solo effect. Double-click: add/remove layer. Shift-click: add or edit.");
         button.setComponentID("mode-"+juce::String(mode));
-        button.setClickingTogglesState(true);
+        button.setClickingTogglesState(false);
         addAndMakeVisible(button);
         button.onClick=[this,i,mode] {
-            const auto id=SkellFlangAudioProcessor::layerParameterIDs[size_t(i)];
-            const auto* raw=processor.parameters.getRawParameterValue(id);
-            const bool wasEnabled=raw&&raw->load(std::memory_order_relaxed)>.5f;
-            // Non-destructive focus gesture: ordinary clicks still toggle
-            // the layer as requested, but Shift-clicking an enabled layer
-            // selects its character macros without touching its audio path.
-            if(wasEnabled && juce::ModifierKeys::currentModifiers.isShiftDown()) {
-                tabs[size_t(i)].setToggleState(true,juce::dontSendNotification);
-                if(auto* focus=processor.parameters.getParameter("mode")) {
-                    focus->beginChangeGesture();
-                    focus->setValueNotifyingHost(focus->convertTo0to1(float(mode)));
-                    focus->endChangeGesture();
-                }
-                updateMode();
-                return;
-            }
-            int count=0;
-            for(const auto* flag:SkellFlangAudioProcessor::layerParameterIDs)
-                if(const auto* value=processor.parameters.getRawParameterValue(flag))
-                    if(value->load(std::memory_order_relaxed)>.5f)++count;
-            if(wasEnabled&&count<=1) {
-                tabs[size_t(i)].setToggleState(true,juce::dontSendNotification);
-                return;
-            }
-            const auto edit=[this](const char* parameterId,float value) {
-                if(auto* p=processor.parameters.getParameter(parameterId)) {
-                    p->beginChangeGesture();
-                    p->setValueNotifyingHost(p->convertTo0to1(value));
-                    p->endChangeGesture();
+            const auto read=[this](const char* id,float fallback) {
+                const auto* v=processor.parameters.getRawParameterValue(id);
+                return v?v->load(std::memory_order_relaxed):fallback;
+            };
+            const auto edit=[this,&read](const char* id,float value) {
+                if(read(id,-999.f)==value)return;
+                if(auto* q=processor.parameters.getParameter(id)) {
+                    q->beginChangeGesture();q->setValueNotifyingHost(q->convertTo0to1(value));q->endChangeGesture();
                 }
             };
-            edit("layerMode",1.f);
-            edit(id,wasEnabled?0.f:1.f);
-            if(!wasEnabled)edit("mode",float(mode));
-            else {
-                const auto* focus=processor.parameters.getRawParameterValue("mode");
-                if(focus&&int(focus->load(std::memory_order_relaxed))==mode)
-                    for(size_t j=0;j<visibleModes.size();++j) {
-                        if(j==size_t(i))continue;
-                        const auto* other=processor.parameters.getRawParameterValue(
-                            SkellFlangAudioProcessor::layerParameterIDs[j]);
-                        if(other&&other->load(std::memory_order_relaxed)>.5f) {
-                            edit("mode",float(visibleModes[j]));
-                            break;
-                        }
-                    }
+            std::array<bool,5> old{};
+            const int focus=int(read("mode",0.f));
+            const bool legacy=read("layerMode",1.f)<.5f
+#if defined(SKELLFLANG_RAW_ENGINE)
+                ||processor.rawFlangusExclusive()
+#endif
+                ;
+            for(std::size_t j=0;j<old.size();++j)
+                old[j]=legacy?visibleModes[j]==focus:
+                    read(SkellFlangAudioProcessor::layerParameterIDs[j],0.f)>.5f;
+            if(std::none_of(old.begin(),old.end(),[](bool b){return b;})) {
+                const auto it=std::find(visibleModes.begin(),visibleModes.end(),focus);
+                old[it==visibleModes.end()?0:std::size_t(it-visibleModes.begin())]=true;
             }
-            // A hand-built combination must not keep displaying its
-            // original single-effect factory preset as if unmodified.
-            markPresetCustom();
+            const bool shift=juce::ModifierKeys::currentModifiers.isShiftDown();
+            const bool doubleClick=tabs[size_t(i)].gestureClicks()>=2&&!shift;
+            auto next=old;
+            int nextFocus=mode;
+            if(doubleClick) {
+                if(haveClickSnapshot&&lastClickedTab==i)next=beforeTabClick;
+                const auto index=size_t(i);
+                if(next[index]&&std::count(next.begin(),next.end(),true)>1) {
+                    next[index]=false;
+                    const auto previous=std::find(visibleModes.begin(),visibleModes.end(),focus);
+                    nextFocus=(previous!=visibleModes.end()&&next[size_t(previous-visibleModes.begin())])?
+                        focus:visibleModes[size_t(std::find(next.begin(),next.end(),true)-next.begin())];
+                } else next[index]=true;
+                haveClickSnapshot=false;
+            } else if(shift) {
+                next[size_t(i)]=true;
+                haveClickSnapshot=false;
+            } else {
+                beforeTabClick=old;lastClickedTab=i;haveClickSnapshot=true;
+                next.fill(false);next[size_t(i)]=true;
+            }
+            // Enable new layers before disabling old ones; the audio thread
+            // fades the old/new weights. Never generate an intentional all-off state.
+            for(std::size_t j=0;j<next.size();++j)
+                if(next[j])edit(SkellFlangAudioProcessor::layerParameterIDs[j],1.f);
+            for(std::size_t j=0;j<next.size();++j)
+                if(!next[j])edit(SkellFlangAudioProcessor::layerParameterIDs[j],0.f);
+#if defined(SKELLFLANG_RAW_ENGINE)
+            edit("skellyRawExclusiveLegacy",0.f);
+#endif
+            edit("layerMode",1.f);edit("mode",float(nextFocus));
+            if(old!=next||legacy)markPresetCustom();
             updateMode();
         };
     }
@@ -946,7 +953,7 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         const auto selected=processor.parameters.state.getProperty("presetName","INIT").toString();
         menu.addItem(1,"INIT - Neutral Start",true,selected=="INIT");
         menu.addSeparator();
-        const char* groups[]{"CHORUS / ENSEMBLE","FLANGER / COMB","FLANGUS / HYBRID",
+        const char* groups[]{"CHORUS / ENSEMBLE","FLANGER / COMB","FLANGUS",
                              "ORBIT / SPATIAL","DIMENSION / DOUBLE"};
         const int offsets[]{1,4,7,10,13};
         for(int group=0;group<5;++group) {
@@ -957,13 +964,20 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
                 sounds.addItem(index+1,presets[size_t(index)],true,
                                selected==presets[size_t(index)]);
             }
+            if(group==0||group==2) {
+                sounds.addSeparator();
+                const int first=group==0?skellflang::flfactory::chorusDefaultIndex:skellflang::flfactory::flangusDefaultIndex;
+                const int last=group==0?skellflang::flfactory::chorusLowEnhanceIndex:first;
+                for(int index=first;index<=last;++index)
+                    sounds.addItem(index+1,presets[size_t(index)],true,selected==presets[size_t(index)]);
+            }
             menu.addSubMenu(groups[group],sounds,true);
         }
         menu.showMenuAsync(juce::PopupMenu::Options()
                              .withTargetComponent(&preset).withMinimumWidth(201)
                              .withMaximumNumColumns(1),
             [safeEditor](int result){
-                if(safeEditor&&result>=1&&result<=16) {
+                if(safeEditor&&result>=1&&result<=int(presets.size())) {
                     safeEditor->processor.applyFactoryPreset(result-1);
                     safeEditor->updateMode();
                 }
@@ -976,6 +990,23 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
         const auto* active=processor.parameters.getRawParameterValue("power");
         const bool powered=active&&active->load(std::memory_order_relaxed)>.5f;
         menu.addItem(1,"Effect enabled",true,powered);
+        const auto* enhanced=processor.parameters.getRawParameterValue("enhancedMotion");
+        menu.addItem(66,"Enhanced Motion (Flanger / Dimension)",true,enhanced&&enhanced->load(std::memory_order_relaxed)>.5f);
+#if defined(SKELLFLANG_RAW_ENGINE)
+        menu.addSeparator();
+        menu.addSectionHeader("FLANGUS SETTINGS");
+
+        menu.addItem(61,"Reset eight raw controls to defaults");
+        menu.addItem(62,"Enter exact raw integers...");
+        menu.addItem(63,"Import FL preset / raw settings...");
+        menu.addItem(64,"Export original 32-byte record...");
+        menu.addItem(65,"Export SFLG v1...");
+#endif
+        menu.addSeparator();
+        menu.addSectionHeader("CHORUS SETTINGS");
+        menu.addItem(67,"Reset native Chorus");
+        menu.addItem(68,"Import FL preset / Chorus raw record...");
+        menu.addItem(69,"Export Chorus raw record...");
         menu.addSeparator();
         menu.addSectionHeader("WINDOW SIZE");
         const char* names[]{"Compact - 540 px","Comfort - 720 px",
@@ -996,7 +1027,21 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
                                .withMaximumNumColumns(1),
             [safeEditor](int item){
                 if(!safeEditor)return;
-                if(item==50) {
+#if defined(SKELLFLANG_RAW_ENGINE)
+                if(item==61){safeEditor->applyRawSettings(skellflang::rawsettings::defaults);return;}
+                if(item==62){safeEditor->openRawEntry();return;}
+                if(item>=63&&item<=65){safeEditor->chooseRawFile(item!=63,item==65);return;}
+#endif
+                if(item==67){safeEditor->applyClassicSettings(skellflang::classicchorus::defaults);return;}
+                if(item==68||item==69){safeEditor->chooseClassicFile(item==69);return;}
+                if(item==66) {
+                    if(auto* v=safeEditor->processor.parameters.getParameter("enhancedMotion")) {
+                        v->beginChangeGesture();
+                        v->setValueNotifyingHost(v->getValue()>.5f?0.f:1.f);
+                        v->endChangeGesture();
+                        safeEditor->markPresetCustom();
+                    }
+                } else if(item==50) {
                     // UI thread only; never send networking or thread actions
                     // through processBlock or JUCE parameter automation.
                     if(safeEditor->processor.worldLink.requested())
@@ -1030,7 +1075,17 @@ SkellFlangAudioProcessorEditor::SkellFlangAudioProcessorEditor(SkellFlangAudioPr
 }
 SkellFlangAudioProcessorEditor::~SkellFlangAudioProcessorEditor(){
     stopTimer();
+    // Cancel owned asynchronous dialogs before tearing down their LookAndFeel.
+    classicFileChooser.reset();
+#if defined(SKELLFLANG_RAW_ENGINE)
+    rawFileChooser.reset();
+#endif
     juce::PopupMenu::dismissAllActiveMenus();
+    // Detach parameter listeners while all of their controls are still alive.
+    for(auto& link:faderLinks)link.reset();
+    orderLink.reset();
+    for(auto& link:knobLinks)link.reset();
+    shapeLink.reset();powerLink.reset();syncLink.reset();
     setLookAndFeel(nullptr);
 }
 
@@ -1060,8 +1115,8 @@ void SkellFlangAudioProcessorEditor::resized() {
         place(faders[size_t(i)],93+i*62,169,49,142);
         place(faderLabels[size_t(i)],88+i*62,316,59,21);
     }
-    for(int i=0;i<3;++i) {
-        const int x=114+i*91;
+    for(int i=0;i<2;++i) {
+        const int x=143+i*106;
         place(knobs[size_t(i)],x,363,59,59);
         place(knobLabels[size_t(i)],x-6,426,71,17);
     }
@@ -1095,16 +1150,212 @@ void SkellFlangAudioProcessorEditor::markPresetCustom() {
     processor.parameters.state.setProperty("presetName","CUSTOM",nullptr);
     preset.setButtonText("CUSTOM");
 }
+#if defined(SKELLFLANG_RAW_ENGINE)
+void SkellFlangAudioProcessorEditor::bindRawControls(bool native) {
+    const char* legacyIds[]{"order","depth","speed","delay","spread","cross","dry","wet"};
+    for(std::size_t k=0;k<8;++k) {
+        auto& slider=k==0?order:faders[k-1];
+        auto& link=k==0?orderLink:faderLinks[k-1];
+        link.reset();
+        const auto* id=shownChorus?skellflang::classicchorus::ids[k]:native?skellflang::RawFlangusPath::ids[k]:legacyIds[k];
+        slider.getProperties().set("rawFlangus",native||shownChorus);
+        slider.getProperties().remove("displayValue");
+        if(k>0)faderLabels[k-1].setText(shownChorus?skellflang::classicchorus::shortNames[k]:lanes[k-1],juce::dontSendNotification);
+        link=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(processor.parameters,id,slider);
+        if(auto* param=processor.parameters.getParameter(id))
+            slider.setDoubleClickReturnValue(true,param->convertFrom0to1(param->getDefaultValue()));
+        auto* control=&slider;
+        slider.onValueChange=[this,control,k] {
+            if(shownChorus) {
+                const int raw=juce::roundToInt(control->getValue());
+                const auto physical=k==1?juce::String(5.f*raw/5000.f,2)+" ms":juce::String(skelly::fruitychorusfx::paramText(int(k),float(raw)/float(skellflang::classicchorus::maximum[k])));
+                juce::String compact=physical;
+                if(k>=6) {
+                    if(physical=="parabola")compact="PARA";
+                    else if(physical=="sharp sine")compact="S-SIN";
+                    else compact=physical.toUpperCase();
+                } else compact=compact.replace(" ","");
+                control->getProperties().set("displayValue",compact);
+                control->setTooltip(juce::String(skellflang::classicchorus::names[k])+" : "+juce::String(raw)+" raw / "+physical);
+                control->repaint();
+            } else if(shownRaw) {
+                const auto raw=juce::roundToInt(control->getValue());
+                const float lo=float(skellflang::rawsettings::minimum[k]),hi=float(skellflang::rawsettings::maximum[k]);
+                const auto physical=skell::flangusfx::paramText(int(k),(float(raw)-lo)/(hi-lo));
+                // Keep signed raw values visible on the fader, and the exact
+                // physical mapping accessible through its tooltip.
+                control->setTooltip(juce::String(skellflang::rawsettings::names[k])+" : "+juce::String(raw)+" raw / "+juce::String(physical));
+                control->repaint();
+            } else control->setTooltip(juce::String(skellflang::rawsettings::names[k])+" : "+juce::String(control->getValue(),2));
+        };
+        slider.onValueChange();slider.repaint();
+    }
+}
+void SkellFlangAudioProcessorEditor::applyRawSettings(const skellflang::rawsettings::State& state) {
+    if(!skellflang::rawsettings::validate(state))return;
+    for(std::size_t k=0;k<state.size();++k)
+        if(auto* p=processor.parameters.getParameter(skellflang::RawFlangusPath::ids[k])) {
+            p->beginChangeGesture();p->setValueNotifyingHost(p->convertTo0to1(float(state[k])));p->endChangeGesture();
+        }
+    markPresetCustom();
+}
+void SkellFlangAudioProcessorEditor::openRawEntry() {
+    const auto current=processor.rawFlangusSettings();
+    auto* dialog=new juce::AlertWindow("Native Flangus","Enter exact signed integers.",juce::MessageBoxIconType::NoIcon);
+    for(std::size_t k=0;k<current.size();++k) {
+        const juce::String key=skellflang::rawsettings::names[k];
+        dialog->addTextEditor(key,juce::String(current[k]),key+" ("+juce::String(skellflang::rawsettings::minimum[k])+" to "+juce::String(skellflang::rawsettings::maximum[k])+")");
+    }
+    dialog->addButton("Apply",1);dialog->addButton("Cancel",0);
+    juce::Component::SafePointer<SkellFlangAudioProcessorEditor> safe(this);
+    dialog->enterModalState(true,juce::ModalCallbackFunction::create([safe,dialog](int result) {
+        if(result!=1||!safe)return;
+        skellflang::rawsettings::State state{};
+        for(std::size_t k=0;k<state.size();++k) {
+            const auto key=skellflang::rawsettings::names[k];
+            const auto value=dialog->getTextEditorContents(key).trim().toStdString();
+            const auto parsed=std::from_chars(value.data(),value.data()+value.size(),state[k]);
+            if(parsed.ec!=std::errc{}||parsed.ptr!=value.data()+value.size()||state[k]<skellflang::rawsettings::minimum[k]||state[k]>skellflang::rawsettings::maximum[k]) {
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,"Invalid raw value",juce::String(key)+" is not an integer in the allowed range.");return;
+            }
+        }
+        safe->applyRawSettings(state);
+    }),true);
+}
+void SkellFlangAudioProcessorEditor::chooseRawFile(bool save,bool versioned) {
+    if(rawFileChooser)return;
+    const auto extension=versioned?".sflg":".bin";
+    const auto initial=juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile(juce::String("Flangus")+extension);
+    rawFileChooser=std::make_unique<juce::FileChooser>(save?"Export native settings":"Import native settings",initial,save?juce::String("*")+extension:juce::String("*.fst;*.bin;*.sflg"));
+    juce::Component::SafePointer<SkellFlangAudioProcessorEditor> safe(this);
+    const int flags=save?(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting):(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles);
+    rawFileChooser->launchAsync(flags,[safe,save,versioned,extension](const juce::FileChooser& chooser) {
+        if(!safe)return;
+        auto file=chooser.getResult();
+        juce::MessageManager::callAsync([safe]{if(safe)safe->rawFileChooser.reset();});
+        if(file==juce::File{})return;
+        auto fail=[](const juce::String& reason){juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,"Native Flangus settings",reason);};
+        if(save) {
+            if(!file.hasFileExtension(extension)){fail("Choose the requested file extension.");return;}
+            const auto state=safe->processor.rawFlangusSettings();
+            if(versioned) {
+                skellflang::rawsettings::VersionedRecord record{};
+                if(!skellflang::rawsettings::encodeVersioned(state,record)||!file.replaceWithData(record.data(),record.size()))fail("Could not write versioned settings.");
+            } else {
+                skellflang::rawsettings::Record record{};
+                if(!skellflang::rawsettings::encode(state,record)||!file.replaceWithData(record.data(),record.size()))fail("Could not write raw settings.");
+            }
+            return;
+        }
+        const bool fst=file.hasFileExtension("fst");
+        if((!fst&&!file.hasFileExtension("bin;sflg"))||file.getSize()<=0||
+            file.getSize()>(fst?juce::int64(skellflang::flpreset::maximumBytes):40)){
+            fail("Unsupported file or size. Choose an FL .fst, 32-byte raw record or SFLG v1.");return;
+        }
+        juce::MemoryBlock bytes;
+        if(!file.loadFileAsData(bytes)){fail("Could not read settings.");return;}
+        skellflang::rawsettings::State state{};
+        if(fst){
+            const auto status=skellflang::flpreset::decodeFlangus(bytes.getData(),bytes.getSize(),state);
+            if(status!=skellflang::flpreset::Error::none){fail(skellflang::flpreset::message(status));return;}
+            safe->applyRawSettings(state);return;
+        }
+        const auto result=skellflang::rawsettings::decode(bytes.getData(),bytes.getSize(),state);
+        if(!result) {
+            juce::String reason(result.error);
+            if(result.parameter>=0)reason+=": "+juce::String(skellflang::rawsettings::names[std::size_t(result.parameter)]);
+            fail(reason);return;
+        }
+        safe->applyRawSettings(state);
+    });
+}
+#endif
+void SkellFlangAudioProcessorEditor::bindClassicMacros(bool classic) {
+    const char* oldIds[]{"extra0","extra1","extra2","extra3"};
+    for(std::size_t k=0;k<4;++k) {
+        auto& slider=knobs[k+3];auto& link=knobLinks[k+3];link.reset();
+        const auto* id=classic?skellflang::classicchorus::ids[k+8]:oldIds[k];
+        link=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(processor.parameters,id,slider);
+        if(auto* q=processor.parameters.getParameter(id))
+            slider.setDoubleClickReturnValue(true,q->convertFrom0to1(q->getDefaultValue()));
+        slider.onValueChange=[this,k] {
+            auto& control=knobs[k+3];
+            if(shownChorus) {
+                const int raw=juce::roundToInt(control.getValue());
+                control.setTooltip(juce::String(skellflang::classicchorus::names[k+8])+" : "+juce::String(raw)+" raw / "+
+                    juce::String(skelly::fruitychorusfx::paramText(int(k+8),float(raw)/float(skellflang::classicchorus::maximum[k+8]))));
+            } else control.setTooltip(knobLabels[k+3].getText()+" : "+juce::String(control.getValue(),2));
+        };
+        slider.onValueChange();
+    }
+}
+void SkellFlangAudioProcessorEditor::applyClassicSettings(const skellflang::classicchorus::State& s) {
+    if(!skellflang::classicchorus::valid(s))return;
+    for(std::size_t k=0;k<s.size();++k)
+        if(auto* q=processor.parameters.getParameter(skellflang::classicchorus::ids[k])){
+            q->beginChangeGesture();q->setValueNotifyingHost(q->convertTo0to1(float(s[k])));q->endChangeGesture();
+        }
+    markPresetCustom();
+}
+void SkellFlangAudioProcessorEditor::chooseClassicFile(bool save) {
+    if(classicFileChooser)return;
+    const auto initial=juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("Chorus.bin");
+    classicFileChooser=std::make_unique<juce::FileChooser>(save?"Export Chorus raw state":"Import Chorus FL preset or raw state",initial,save?"*.bin":"*.fst;*.bin");
+    juce::Component::SafePointer<SkellFlangAudioProcessorEditor> safe(this);
+    const int flags=save?(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting):(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles);
+    classicFileChooser->launchAsync(flags,[safe,save](const juce::FileChooser& chooser) {
+        if(!safe)return;
+        const auto file=chooser.getResult();
+        juce::MessageManager::callAsync([safe]{if(safe)safe->classicFileChooser.reset();});
+        if(file==juce::File{})return;
+        const auto fail=[](const juce::String& reason){juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,"Chorus settings",reason);};
+        if(save) {
+            skellflang::classicchorus::Record record{};
+            if(!file.hasFileExtension("bin")||!skellflang::classicchorus::encode(safe->processor.classicChorusSettings(),record)||!file.replaceWithData(record.data(),record.size()))fail("Could not write the 52-byte Chorus raw record.");
+            return;
+        }
+        const bool fst=file.hasFileExtension("fst");
+        if((!fst&&!file.hasFileExtension("bin"))||file.getSize()<=0||
+            file.getSize()>(fst?juce::int64(skellflang::flpreset::maximumBytes):52)){
+            fail("Unsupported file or size. Choose an FL .fst or 52-byte Chorus record.");return;
+        }
+        juce::MemoryBlock bytes;skellflang::classicchorus::State state{};
+        if(!file.loadFileAsData(bytes)){fail("Could not read settings.");return;}
+        if(fst){
+            const auto status=skellflang::flpreset::decodeChorus(bytes.getData(),bytes.getSize(),state);
+            if(status!=skellflang::flpreset::Error::none){fail(skellflang::flpreset::message(status));return;}
+        } else if(!skellflang::classicchorus::decode(bytes.getData(),bytes.getSize(),state)){
+            fail("Expected a valid 52-byte Chorus raw payload.");return;
+        }
+        safe->applyClassicSettings(state);
+    });
+}
 void SkellFlangAudioProcessorEditor::updateMode() {
     const auto* raw=processor.parameters.getRawParameterValue("mode");
     const int selected=std::clamp(raw?int(raw->load(std::memory_order_relaxed)):0,0,7);
     const auto* layering=processor.parameters.getRawParameterValue("layerMode");
     const bool legacy=layering&&layering->load(std::memory_order_relaxed)<.5f;
+    const bool chorus=selected==0;
+    const bool chorusUnavailable=chorus&&processor.classicChorusStatus()==0;
+    const bool chorusChanged=chorus!=shownChorus||chorusUnavailable!=shownChorusUnavailable;
+    const bool rebindChorus=chorus!=shownChorus;
+    shownChorus=chorus;shownChorusUnavailable=chorusUnavailable;
+    if(rebindChorus)bindClassicMacros(chorus);
+#if defined(SKELLFLANG_RAW_ENGINE)
+    const bool unavailable=processor.rawFlangusRequested()&&processor.rawEngineStatus()==0;
+    const bool native=processor.rawFlangusRequested();
+    const bool exclusive=processor.rawFlangusExclusive();
+    const bool nativeChanged=native!=shownRaw||unavailable!=shownRawUnavailable;
+    if(native!=shownRaw||rebindChorus){shownRaw=native;bindRawControls(native);}
+    shownRawUnavailable=unavailable;
+#else
+    constexpr bool native=false,nativeChanged=false,exclusive=false;
+#endif
     std::array<bool,5> layers{};
     for(size_t i=0;i<layers.size();++i) {
         const auto* enabled=processor.parameters.getRawParameterValue(
             SkellFlangAudioProcessor::layerParameterIDs[i]);
-        layers[i]=legacy?(visibleModes[i]==selected):
+        layers[i]=(legacy||exclusive)?(visibleModes[i]==selected):
                        (enabled&&enabled->load(std::memory_order_relaxed)>.5f);
     }
     // Factory presets and host state loads may not change the focused mode:
@@ -1118,11 +1369,11 @@ void SkellFlangAudioProcessorEditor::updateMode() {
     for(bool on:layers)if(on)++activeCount;
     // This is deliberately not enabled in legacy project mode. The button
     // only navigates among genuinely enabled audio engines in Layer Stack.
-    const bool canAdvance=!legacy&&activeCount>1;
+    const bool canAdvance=!exclusive&&!legacy&&activeCount>1;
     if(editNext.isVisible()!=canAdvance)
         editNext.setVisible(canAdvance);
     if(modeChanged)updateEditChevronBounds();
-    if(!modeChanged&&!layersChanged&&theme==shownTheme)return;
+    if(!modeChanged&&!layersChanged&&!nativeChanged&&!chorusChanged&&theme==shownTheme)return;
     shownLayers=layers;
     shownMode=selected;
     shownTheme=theme;
@@ -1164,11 +1415,8 @@ void SkellFlangAudioProcessorEditor::updateMode() {
     for(int i=0;i<5;++i) {
         tabs[size_t(i)].setToggleState(layers[size_t(i)],
                                        juce::dontSendNotification);
-        tabs[size_t(i)].setTooltip(layers[size_t(i)]
-            ? (juce::String(modes[visibleModes[size_t(i)]])+
-               ": active. Click to remove; Shift-click to edit without muting.")
-            : (juce::String("Add ")+modes[visibleModes[size_t(i)]]+
-               " to the effect stack."));
+        tabs[size_t(i)].setTooltip(juce::String(modes[visibleModes[size_t(i)]])+
+            ": click to solo; double-click to add/remove; Shift-click to add or edit.");
         tabs[size_t(i)].getProperties().set("focused",
             layers[size_t(i)]&&visibleModes[size_t(i)]==selected);
         tabs[size_t(i)].repaint();
@@ -1177,18 +1425,27 @@ void SkellFlangAudioProcessorEditor::updateMode() {
     // Host automation still updates all four macros, even if not visible.
     if(modeChanged)selectedMacro=0;
     for(int i=0;i<4;++i) {
-        label(knobLabels[size_t(3+i)],knobNames[selected][i]);
+        const auto* macroName=chorus?skellflang::classicchorus::shortNames[size_t(8+i)]:knobNames[selected][i];
+        label(knobLabels[size_t(3+i)],macroName);
         knobLabels[size_t(3+i)].setFont(juce::Font(
             juce::jlimit(9.f,11.f,11.f*getWidth()/float(baseW))));
         knobLabels[size_t(3+i)].setColour(juce::Label::textColourId,skin.secondary);
-        macroTabs[size_t(i)].setButtonText(knobNames[selected][i]);
+        macroTabs[size_t(i)].setButtonText(macroName);
+        if(chorus)knobs[size_t(3+i)].onValueChange();
     }
+    shape.setVisible(!native&&!chorus);sync.setVisible(!native&&!chorus);
+    for(std::size_t k=0;k<2;++k){knobs[k].setVisible(!native&&!chorus);knobLabels[k].setVisible(!native&&!chorus);}
+    for(auto& tab:macroTabs)tab.setVisible(!native);
     updateMacroSelection();
     repaint();
 }
 void SkellFlangAudioProcessorEditor::updateMacroSelection() {
     for(int i=0;i<4;++i) {
-        const bool selected=(i==selectedMacro);
+        const bool selected=(i==selectedMacro)
+#if defined(SKELLFLANG_RAW_ENGINE)
+            && !shownRaw
+#endif
+            ;
         macroTabs[size_t(i)].setToggleState(selected,juce::dontSendNotification);
         macroTabs[size_t(i)].repaint();
         knobs[size_t(3+i)].setVisible(selected);
@@ -1218,13 +1475,19 @@ void SkellFlangAudioProcessorEditor::timerCallback() {
     if(settings.getTooltip()!=worldTip)settings.setTooltip(worldTip);
     const float s=getWidth()/float(baseW);
     repaint(0,juce::roundToInt(50*s),getWidth(),juce::roundToInt(15*s));
-    repaint(juce::roundToInt(536*s),juce::roundToInt(124*s),
-            juce::roundToInt(171*s),juce::roundToInt(219*s));
+    // Only the waveform changes, not the panel labels and controls.
+    repaint(juce::roundToInt(552*s),juce::roundToInt(162*s),
+            juce::roundToInt(141*s),juce::roundToInt(102*s));
     repaint(0,juce::roundToInt(485*s),getWidth(),
-            std::max(1,getHeight()-juce::roundToInt(426*s)));
+            std::max(1,getHeight()-juce::roundToInt(485*s)));
 }
 void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     const float s=getWidth()/float(baseW);
+#if defined(SKELLFLANG_RAW_ENGINE)
+    const bool native=shownRaw,unavailable=shownRawUnavailable;
+#else
+    constexpr bool native=false,unavailable=false;
+#endif
     g.fillAll(skin.background);
     g.saveState();
     g.addTransform(juce::AffineTransform::scale(s));
@@ -1290,7 +1553,7 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.drawText("01  /  CONTROL DECK",27,130,170,16,juce::Justification::left);
     g.setColour(skin.secondary);
     g.setFont(juce::Font(10.5f*typeBoost));
-    g.drawFittedText("VOICES",24,316,54,20,juce::Justification::centred,1);
+    g.drawFittedText(shownChorus?"DELAY":"VOICES",24,316,54,20,juce::Justification::centred,1);
     g.drawText("02  /  SIGNAL",550,130,143,16,juce::Justification::left);
 
     // Small technical divider motifs make the layout distinctive, not busy.
@@ -1348,15 +1611,15 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.drawText(annotation,554,316,142,16,juce::Justification::left);
     g.setColour(skin.secondary.withAlpha(.90f));
     g.setFont(juce::Font(10.5f*typeBoost,juce::Font::bold));
-    g.drawText("WAVE",556,274,136,13,juce::Justification::left);
+    g.drawText((native||shownChorus)?"NATIVE / RAW":"WAVE",556,274,136,13,juce::Justification::left);
 
     // Every parameter is available without entering a separate MOD page.
     g.setColour(skin.secondary);
     g.setFont(juce::Font(10.5f*typeBoost,juce::Font::bold));
-    g.drawFittedText("03 / TONE",27,367,84,15,
+    g.drawFittedText((native||shownChorus)?"03 / ENGINE":"03 / TONE",27,367,84,15,
                      juce::Justification::centredLeft,1);
     g.setFont(juce::Font(10.2f*typeBoost));
-    g.drawFittedText("ESSENTIALS",27,394,92,13,
+    g.drawFittedText((native||shownChorus)?"NATIVE":"ESSENTIALS",27,394,92,13,
                      juce::Justification::centredLeft,1);
     // Separate the three always-visible tone knobs from one focused character
     // macro. Four selector pads keep every existing DSP parameter reachable.
@@ -1366,12 +1629,19 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     g.setFont(juce::Font(10.f*typeBoost,juce::Font::bold));
     // The label and edit arrow track each other even when 540px text grows.
     const int drawnMode=std::clamp(shownMode,0,7);
-    const auto focusedTitle=characterTitle(drawnMode);
+    const auto focusedTitle=juce::String(characterTitle(drawnMode));
     const int titleBounds=juce::roundToInt(characterTitleWidth(drawnMode,s))+3;
     g.drawFittedText(focusedTitle,383,357,titleBounds,15,
                      juce::Justification::centredLeft,1);
     g.setColour(skin.accent.withAlpha(.78f));
     g.fillRoundedRectangle(383.f,373.f,32.f,1.2f,.6f);
+    if(native){g.setColour(skin.secondary);g.setFont(juce::Font(11.5f));g.drawFittedText("SIGNED DRY / WET     •     1–9 VOICES\nHover for units   /   Settings for exact entry",383,383,307,48,juce::Justification::centredLeft,2);}
+    if(native||shownChorus){
+        g.setColour(skin.secondary);g.setFont(juce::Font(10.5f*typeBoost,juce::Font::bold));
+        g.drawFittedText(shownChorus?"CLASSIC / 3 LFO":"NATIVE / UP TO 18 VOICES",114,381,237,15,juce::Justification::centredLeft,1);
+        g.setFont(juce::Font(10.f*typeBoost));
+        g.drawFittedText(shownChorus?"Free-running modulation":"Independent dry / wet",114,401,237,15,juce::Justification::centredLeft,1);
+    }
     g.setColour(skin.outline);
     g.fillRoundedRectangle(27.f,446.f,669.f,1.f,.5f);
     // A selected button is the effect being EDITED, not the entire audible
@@ -1387,7 +1657,7 @@ void SkellFlangAudioProcessorEditor::paint(juce::Graphics& g) {
     }
     const auto* stackParam=processor.parameters.getRawParameterValue("layerMode");
     const bool stackEnabled=stackParam&&stackParam->load(std::memory_order_relaxed)>.5f;
-    const juce::String description=stackEnabled
+    const juce::String description=shownChorusUnavailable?juce::String("CHORUS BYPASS / 32-192 kHz REQUIRED"):unavailable?juce::String("FLANGUS BYPASS / 32-192 kHz REQUIRED"):native?juce::String("FLANGUS / NATIVE ENGINE  |  ")+names:shownChorus?juce::String("CLASSIC CHORUS  |  ")+names:stackEnabled
         ? ("LAYERS  "+juce::String(count)+"/5     "+names)
         : ("LEGACY MODE  /  "+juce::String(modes[std::clamp(shownMode,0,7)]));
     g.setColour(glow.withAlpha(skin.themeIndex==2?.92f:.86f));

@@ -35,6 +35,21 @@ public:
         const juce::Drawable*,const juce::Colour*) override;
     void getIdealPopupMenuItemSize(const juce::String&,bool,int,int&,int&) override;
 };
+class FlangEffectTab final : public juce::TextButton {
+public:
+    int gestureClicks() const noexcept {return clicks;}
+    void mouseUp(const juce::MouseEvent& event) override {
+        clicks=event.getNumberOfClicks();
+        juce::TextButton::mouseUp(event);
+        clicks=1;
+    }
+    void invokeGesture(int count) {
+        clicks=count;if(onClick)onClick();clicks=1;
+    }
+private:
+    int clicks=1;
+};
+
 class SkellFlangAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                               private juce::Timer {
 public:
@@ -46,8 +61,21 @@ private:
     void timerCallback() override;
     void updateMode();
     void updateMacroSelection();
+    void bindClassicMacros(bool);
+    void chooseClassicFile(bool);
+    void applyClassicSettings(const skellflang::classicchorus::State&);
+    bool shownChorus=false,shownChorusUnavailable=false;
+    std::unique_ptr<juce::FileChooser> classicFileChooser;
     void updateEditChevronBounds();
     void markPresetCustom();
+#if defined(SKELLFLANG_RAW_ENGINE)
+    void bindRawControls(bool);
+    void applyRawSettings(const skellflang::rawsettings::State&);
+    void openRawEntry();
+    void chooseRawFile(bool,bool);
+    bool shownRaw=false,shownRawUnavailable=false;
+    std::unique_ptr<juce::FileChooser> rawFileChooser;
+#endif
 
     SkellFlangAudioProcessor& processor;
     FlangLookAndFeel skin;
@@ -68,7 +96,10 @@ private:
     juce::TextButton editNext{""};
     int selectedMacro=0;
     std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>,7> knobLinks;
-    std::array<juce::TextButton,5> tabs;
+    std::array<FlangEffectTab,5> tabs;
+    std::array<bool,5> beforeTabClick{};
+    int lastClickedTab=-1;
+    bool haveClickSnapshot=false;
     std::array<bool,5> shownLayers{{}};
     juce::ComboBox shape;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> shapeLink;
